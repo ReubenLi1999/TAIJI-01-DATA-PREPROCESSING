@@ -9,6 +9,10 @@ from scipy.spatial.distance import cdist
 import os
 import time
 import numba
+import hwm93
+import datetime
+from astropy.coordinates import EarthLocation as el
+from auromat.coordinates import transform
 
 
 @numba.jit
@@ -79,8 +83,10 @@ def read_input_file_names(filepath):
 
     output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
     flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
+    wind_speed_filename = '..//output//taiji-01-0860-wind_speed-' + \
+        str(year_this_month) + '-' + str(month_this_month) + '.txt'
 
-    return filepaths_this_month, output_filename, flag_filename
+    return filepaths_this_month, output_filename, flag_filename, wind_speed_filename
 
 
 def write_output_file_header(output_filename, epoch_pair, interpolated=False):
@@ -266,13 +272,73 @@ def creat_qualflg(df, flag_filename):
     # return position_flag, velocity_flag
 
 
+def wind_speed(df, filename):
+    """ This function is designed to calculate the wind speed for the satellite.
+
+    Args:
+        df (dask.datafram): dataframe containing different information
+        filename (str): the output file name
+    """
+    # extract year month date hour minute second
+    year = np.int(filename[-11: -7])
+    year = np.dot(np.ones(df.__len__()), year).astype(np.int)
+    month = np.int(filename[-6: -4])
+    month = np.dot(np.ones(df.__len__()), month).astype(np.int)
+    gps_time = df.gps_time.compute().to_numpy() - 18.0
+    xpos = df.xpos.compute().to_numpy()
+    ypos = df.ypos.compute().to_numpy()
+    zpos = df.zpos.compute().to_numpy()
+    date = np.floor((gps_time - gps_time[0] + 8. * 3600.) / 86400.).astype(np.int) + 1.
+    hour = np.floor((gps_time - gps_time[0] - (date - 1) * 86400.) / 3600.).astype(np.int) + 8.
+    minute = np.floor((gps_time - gps_time[0] - (hour - 8.0) * 3600.0 - (date - 1.0) * 86400.) / 60.).astype(np.int)
+    second = np.mod((gps_time - gps_time[0] - (hour - 8.0) * 3600.0 - (date - 1.0) * 86400. - minute * 60.0), 60.).astype(np.int)
+    # using astropy transform ecef to geodetic
+    pos_el = el.from_geocentric(x=xpos, y=ypos, z=zpos, unit='km')
+    lla_el = pos_el.to_geodetic()
+    lat = np.asarray(lla_el.lat)
+    lon = np.asarray(lla_el.lon)
+    alt = np.asarray(lla_el.height)
+
+    # wind speed
+    winds = np.zeros([df.__len__(), 2])
+    for i, y in enumerate(year):
+        y = np.int(y); h = np.int(hour[i])
+        mon = np.int(month[i]); d = np.int(date[i]); minu = np.int(minute[i]); sec = np.int(second[i])
+        date_time = datetime.datetime(y, mon, d, h, minu, sec)
+        temp = hwm93.run(date_time, altkm=alt[i], glat=lat[i], glon=lon[i], f107=150., f107a=150., ap=4.)
+        winds[i, 0] = temp.meridional.values; winds[i, 1] = temp.zonal.values
+
+    # cartesian 2 spherical
+    slat, slon = transform.cartesian_to_spherical(xpos, ypos, zpos, with_radius=False)
+    # lat
+    ns_morethan_0 = np.where(winds[:, 0] >= 0)
+    ns_lessthan_0 = np.where(winds[:, 0] < 0)
+    ew_morethan_0 = np.where(winds[:, 1] >= 0)
+    ew_lessthan_0 = np.where(winds[:, 1] < 0)
+    slat[ns_morethan_0] = np.abs(slat[ns_morethan_0] - np.pi / 2.0)
+    slat[ns_lessthan_0] = -np.abs(slat[ns_lessthan_0] - np.pi / 2.0)
+    ns_x, ns_y, ns_z = transform.spherical_to_cartesian(winds[:, 0], slat, slon)
+    # lon
+    lon_lessthan_0 = np.where(slon < 0)
+    slon[lon_lessthan_0] = 2 * np.pi + slon[lon_lessthan_0]
+    slon[ns_morethan_0] = slon[ns_morethan_0] + np.pi / 2.0
+    slon[ns_lessthan_0] = slon[ns_lessthan_0] - np.pi / 2.0
+    lon_lessthan_0 = np.where(slon < 0)
+    slon[lon_lessthan_0] = 2 * np.pi + slon[lon_lessthan_0]
+    lon_morethan_2 = np.where(slon >= 2 * np.pi)
+    slon[lon_morethan_2] = slon[lon_morethan_2] - 2 * np.pi
+    lon_morethan_p = np.where(slon > np.pi)
+    slon[lon_morethan_p] = slon[lon_morethan_p] - 2 * np.pi
+    ew_x, ew_y, ew_z = transform.spherical_to_cartesian(winds[:, 1], np.zeros(slon.__len__()), slon)
+
+
 @get_run_time
 def outliers_detection():
     """ This function is designed to find the outliers for the GPS data in earth-fixed system of Taiji-01.
     """
 
     # get the input file names and the output file name
-    filepaths_this_month, output_filename, flag_filename = read_input_file_names('..//input//12')
+    filepaths_this_month, output_filename, flag_filename, wind_speed_filename = read_input_file_names('..//input//12')
 
     # read the input files all together
     dd_gps = dd.read_csv(urlpath=filepaths_this_month, sep=',', header=None,
@@ -306,13 +372,16 @@ def outliers_detection():
                   'columns': dd_gps.__len__(), 'instrument': 'GPS', 'data_type': 'earth_fixed_system_positions_and_velocities',
                   'version': 1, 'starting_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[0], 'ending_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[-1]}
 
+    # calculate the wind speed
+    wind_speed(dd_gps, wind_speed_filename)
+
     # creat the qualflg
-    creat_qualflg(dd_gps, flag_filename)
+    # creat_qualflg(dd_gps, flag_filename)
 
     # write the output file
-    write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
-    dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
-        'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
+    # write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
+    # dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
+    #     'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
 
 
 def check_leap_year(year, month):
