@@ -4,20 +4,26 @@ module taiji_01_preprocessing
 
     implicit none
 
-    type gps
-        real(kind = 8)                      :: pos(3)
-        real(kind = 8)                      :: vel(3)
-        real(kind = 8)                      :: acc(3)
-        real(kind = 8)                      :: pos_incr(3)
-        real(kind = 8)                      :: vel_incr(3)
-        real(kind = 8)                      :: vel_diffed(3)
-        real(kind = 8)                      :: time
-        real(kind = 8)                      :: rcv_time
-        integer(kind = 4)                   :: pos_qualflg
-        integer(kind = 4)                   :: vel_qualflg
-        integer(kind = 4)                   :: vac_qualflg
-        integer(kind = 4)                   :: month
-    end type gps
+    type spacecraft
+        real(kind = 8)                      :: pos(3)                   !! position vector in earth-fixed frame
+        real(kind = 8)                      :: vel(3)                   !! velocity vector in earth-fixed frame
+        real(kind = 8)                      :: acc(3)                   !! accelaration vector in earth-fixed frame
+        real(kind = 8)                      :: pos_incr(3)              !! the possible jump of position vector in earth-fixed frame
+        real(kind = 8)                      :: vel_incr(3)              !! the possible jump of velocity vector in earth-fixed frame
+        real(kind = 8)                      :: vel_diffed(3)            !! the differentiation of velocity vector in earth-fixed frame
+        real(kind = 8)                      :: time                     !! the corresponding gps time
+        real(kind = 8)                      :: rcv_time                 !! the correspongding receiving time or satellite time
+        integer(kind = 4)                   :: pos_qualflg              !! the quality flag for position
+        integer(kind = 4)                   :: vel_qualflg              !! the quality flag for velocity
+        integer(kind = 4)                   :: vac_qualflg              !! the flag that signals the vacuum before the epoch
+        integer(kind = 4)                   :: month                    !! the month for the epoch of the spacecraft
+        integer(kind = 4)                   :: dayofyear                !! the day of this year
+        INTEGER(kind = 4)                   :: secofday                 !! the seconds of this day
+        integer(kind = 4)                   :: lat                      !! the latitude in the geodetic frame
+        integer(kind = 4)                   :: lon                      !! the longitude in the geodetic frame
+        integer(kind = 4)                   :: alt                      !! the altitude in the geodetic frame
+        integer(kind = 4)                   :: year                     !! the year of this epoch
+    end type spacecraft
 
     TYPE att
         real(wp)                            :: eul(3)
@@ -32,11 +38,11 @@ module taiji_01_preprocessing
         integer(kind = 8)                   :: nrow
     end type io_file
 
-    type(gps)    , allocatable              :: s(:)
-    type(io_file), allocatable              :: i_f(:)
-    type(io_file), allocatable              :: o_f(:)
-    type(io_file), ALLOCATABLE              :: f_f(:)
-    type(io_file), ALLOCATABLE              :: c_f(:)
+    type(spacecraft)    , allocatable       :: s(:)
+    type(io_file)       , allocatable       :: i_f(:)
+    type(io_file)       , allocatable       :: o_f(:)
+    type(io_file)       , ALLOCATABLE       :: f_f(:)
+    type(io_file)       , ALLOCATABLE       :: c_f(:)
     type(io_file)                           :: log_f
     
 contains

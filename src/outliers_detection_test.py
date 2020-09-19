@@ -1,4 +1,6 @@
 from datetime import date
+from os import read
+from astropy.config import configuration
 import numpy as np
 import dask.dataframe as dd
 import matplotlib.pyplot as plt
@@ -11,8 +13,19 @@ import time
 import numba
 import hwm93
 import datetime
+import msise00
 from astropy.coordinates import EarthLocation as el
 from auromat.coordinates import transform
+from pyatmos import download_sw, read_sw, nrlmsise00
+
+
+class air_drag(object):
+
+    def __init__(self, relative_velocity, air_density, configuration, altitude):
+        self.relative_velocity = relative_velocity
+        self.air_density = air_density
+        self.configuation = configuration
+        self.altitude = altitude
 
 
 @numba.jit
@@ -83,10 +96,10 @@ def read_input_file_names(filepath):
 
     output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
     flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
-    wind_speed_filename = '..//output//taiji-01-0860-wind_speed-' + \
+    air_drag_par_filename = '..//output//taiji-01-0860-wind-speed-air-density-' + \
         str(year_this_month) + '-' + str(month_this_month) + '.txt'
 
-    return filepaths_this_month, output_filename, flag_filename, wind_speed_filename
+    return filepaths_this_month, output_filename, flag_filename, air_drag_par_filename
 
 
 def write_output_file_header(output_filename, epoch_pair, interpolated=False):
@@ -272,7 +285,7 @@ def creat_qualflg(df, flag_filename):
     # return position_flag, velocity_flag
 
 
-def wind_speed(df, filename):
+def air_drag_par(df, filename, sw_data):
     """ This function is designed to calculate the wind speed for the satellite.
 
     Args:
@@ -301,20 +314,26 @@ def wind_speed(df, filename):
 
     # wind speed
     winds = np.zeros([df.__len__(), 2])
+    air_density = np.zeros(df.__len__())
     for i, y in enumerate(year):
         y = np.int(y); h = np.int(hour[i])
         mon = np.int(month[i]); d = np.int(date[i]); minu = np.int(minute[i]); sec = np.int(second[i])
         date_time = datetime.datetime(y, mon, d, h, minu, sec)
-        temp = hwm93.run(date_time, altkm=alt[i], glat=lat[i], glon=lon[i], f107=150., f107a=150., ap=4.)
-        winds[i, 0] = temp.meridional.values; winds[i, 1] = temp.zonal.values
+        para_input, para_output = nrlmsise00(date_time, lat[i], lon[i], alt[i], sw_data)
+        air_density[i] = para_output['Density']['RHO[kg/m^3]']  # unit = km / m^(-3)
+        reg= hwm93.run(
+            date_time, altkm=alt[i], glat=lat[i], glon=lon[i], f107=para_input['f107Daily[10^-22 W/m^2/Hz]'],
+            f107a=para_input['f107Average[10^-22 W/m^2/Hz]'], ap=para_input['ApDaily'])
+        winds[i, 0] = reg.meridional.values
+        winds[i, 1] = reg.zonal.values
+        print(date_time, air_density[i])
+
 
     # cartesian 2 spherical
     slat, slon = transform.cartesian_to_spherical(xpos, ypos, zpos, with_radius=False)
     # lat
     ns_morethan_0 = np.where(winds[:, 0] >= 0)
     ns_lessthan_0 = np.where(winds[:, 0] < 0)
-    ew_morethan_0 = np.where(winds[:, 1] >= 0)
-    ew_lessthan_0 = np.where(winds[:, 1] < 0)
     slat[ns_morethan_0] = np.abs(slat[ns_morethan_0] - np.pi / 2.0)
     slat[ns_lessthan_0] = -np.abs(slat[ns_lessthan_0] - np.pi / 2.0)
     ns_x, ns_y, ns_z = transform.spherical_to_cartesian(winds[:, 0], slat, slon)
@@ -330,6 +349,26 @@ def wind_speed(df, filename):
     lon_morethan_p = np.where(slon > np.pi)
     slon[lon_morethan_p] = slon[lon_morethan_p] - 2 * np.pi
     ew_x, ew_y, ew_z = transform.spherical_to_cartesian(winds[:, 1], np.zeros(slon.__len__()), slon)
+    winds_x = ew_x + ns_x; winds_y = ew_y + ns_y; winds_z = ew_z + ns_z
+    winds_vector = np.c_[winds_x, winds_y, winds_z]
+    angular_vector = np.asarray([0.0, 0.0, 7.2921158553e-5])
+    spos = np.c_[xpos, ypos, zpos]
+    svel = np.c_[df.xvel.compute().to_numpy(), df.yvel.compute().to_numpy(), df.zvel.compute().to_numpy()]
+    relative_velocity = svel * 1000.0 - winds_vector - np.cross(angular_vector, spos * 1000.)
+
+    return relative_velocity, air_density
+
+
+def init_pyatmos():
+    """ This is a function to initiate the package-pyatmos
+
+    Returns:
+        [type]: [description]
+    """
+    swfile = download_sw()
+    swdata = read_sw(swfile)
+    
+    return swdata
 
 
 @get_run_time
@@ -338,7 +377,7 @@ def outliers_detection():
     """
 
     # get the input file names and the output file name
-    filepaths_this_month, output_filename, flag_filename, wind_speed_filename = read_input_file_names('..//input//12')
+    filepaths_this_month, output_filename, flag_filename, air_drag_par_filename = read_input_file_names('..//input//12')
 
     # read the input files all together
     dd_gps = dd.read_csv(urlpath=filepaths_this_month, sep=',', header=None,
@@ -373,7 +412,9 @@ def outliers_detection():
                   'version': 1, 'starting_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[0], 'ending_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[-1]}
 
     # calculate the wind speed
-    wind_speed(dd_gps, wind_speed_filename)
+    sw_data = init_pyatmos()
+    relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data)
+    print(air_density)
 
     # creat the qualflg
     # creat_qualflg(dd_gps, flag_filename)
