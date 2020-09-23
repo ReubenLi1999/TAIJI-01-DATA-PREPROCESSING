@@ -69,7 +69,7 @@ contains
     subroutine gps_deglitch(me)
         implicit none
 
-        type(gps), intent(inout)            :: me(:)
+        type(spacecraft), intent(inout)     :: me(:)
 
         INTEGER(kind = 8)                   :: index, i, j
 
@@ -197,7 +197,7 @@ contains
 
     subroutine output_data2file(me, o_file_unit)
         implicit none
-        type(gps), INTENT(IN   )            :: me(:)
+        type(spacecraft), INTENT(IN   )     :: me(:)
 
         integer(kind = 4)                   :: o_file_unit
 
@@ -215,7 +215,7 @@ contains
     subroutine creat_clk_file(me, o_file_unit)
         implicit none
 
-        TYPE(gps)  , intent(in   )            :: me(:)
+        TYPE(spacecraft)  , intent(in   )     :: me(:)
         INTEGER(ip), INTENT(IN   )            :: o_file_unit
         real(wp), allocatable                 :: gps_time(:)
         real(wp), ALLOCATABLE                 :: clk_drift(:)
@@ -233,7 +233,7 @@ contains
         call DATE_AND_TIME(date, temp_c, temp_c)
 
         gps_time = me%time - me(1)%time
-        clk_drift = gps_time - me%rcv_time
+        clk_drift = gps_time - me%rcv_time + floor(me(1)%rcv_time)
         write(o_file_unit, '(a)') 'header:'
         write(o_file_unit, '(4x, a, i10)') 'dimensions: ', size(me)
         write(o_file_unit, '(4x, a)') 'global_attributes: '
@@ -367,19 +367,19 @@ program main
     if (err /= 0) print *, "c_f: Allocation request denied"
 
     i_f%name = [ &
-        '..//output//taiji-01-0860-earth-fixed-system-2019-11.txt' &
+        '..//output//taiji-01-0860-earth-fixed-system-2019-09.txt' &
     ]
 
     f_f%name = [ &
-        '..//output//taiji-01-0860-position-velocity-flag-2019-11.txt' &
+        '..//output//taiji-01-0860-position-velocity-flag-2019-09.txt' &
     ]
     
     o_f%name = [ &
-        '..//output//taiji-01-0860-earth-fixed-system-2019-11-after-fortran.txt'&
+        '..//output//taiji-01-0860-earth-fixed-system-2019-09-after-fortran.txt'&
     ]
 
     c_f%name = [ &
-        '..//output//taiji-01-0860-clk-2019-11.txt'&
+        '..//input//09//KX09_SAT_1D_ENG_0111_20190900T000000_01_04.txt'&
     ]
 
     month_file_loop: do index = 1, num_input_files, 1

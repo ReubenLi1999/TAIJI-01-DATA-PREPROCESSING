@@ -1,22 +1,23 @@
-from datetime import date
-from os import read
-from astropy.config import configuration
-import numpy as np
-import dask.dataframe as dd
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator as ML
-from matplotlib.ticker import ScalarFormatter as SF
-from matplotlib.ticker import LogLocator as LL
-from scipy.spatial.distance import cdist
+import datetime
 import os
 import time
-import numba
+from datetime import date
+from os import read
+
+import dask.dataframe as dd
 import hwm93
-import datetime
+import matplotlib.pyplot as plt
 import msise00
+import numba
+import numpy as np
+from astropy.config import configuration
 from astropy.coordinates import EarthLocation as el
 from auromat.coordinates import transform
-from pyatmos import download_sw, read_sw, nrlmsise00
+from matplotlib.ticker import LogLocator as LL
+from matplotlib.ticker import MultipleLocator as ML
+from matplotlib.ticker import ScalarFormatter as SF
+from pyatmos import download_sw, nrlmsise00, read_sw
+from scipy.spatial.distance import cdist
 
 
 class air_drag(object):
@@ -94,10 +95,15 @@ def read_input_file_names(filepath):
     else:
         print('Error occurred in the date of this month!')
 
-    output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
-    flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str(month_this_month) + '.txt'
+    if month_this_month < 10:
+        str_month_this_month = '0' + str(month_this_month)
+    else:
+        str_month_this_month = str(month_this_month)
+
+    output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
+    flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
     air_drag_par_filename = '..//output//taiji-01-0860-wind-speed-air-density-' + \
-        str(year_this_month) + '-' + str(month_this_month) + '.txt'
+        str(year_this_month) + '-' + str_month_this_month + '.txt'
 
     return filepaths_this_month, output_filename, flag_filename, air_drag_par_filename
 
@@ -326,7 +332,6 @@ def air_drag_par(df, filename, sw_data):
             f107a=para_input['f107Average[10^-22 W/m^2/Hz]'], ap=para_input['ApDaily'])
         winds[i, 0] = reg.meridional.values
         winds[i, 1] = reg.zonal.values
-        print(date_time, air_density[i])
 
 
     # cartesian 2 spherical
@@ -377,7 +382,7 @@ def outliers_detection():
     """
 
     # get the input file names and the output file name
-    filepaths_this_month, output_filename, flag_filename, air_drag_par_filename = read_input_file_names('..//input//12')
+    filepaths_this_month, output_filename, flag_filename, air_drag_par_filename = read_input_file_names('..//input//9')
 
     # read the input files all together
     dd_gps = dd.read_csv(urlpath=filepaths_this_month, sep=',', header=None,
@@ -412,17 +417,16 @@ def outliers_detection():
                   'version': 1, 'starting_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[0], 'ending_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[-1]}
 
     # calculate the wind speed
-    sw_data = init_pyatmos()
-    relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data)
-    print(air_density)
+    # sw_data = init_pyatmos()
+    # relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data)
 
     # creat the qualflg
-    # creat_qualflg(dd_gps, flag_filename)
+    creat_qualflg(dd_gps, flag_filename)
 
     # write the output file
-    # write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
-    # dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
-    #     'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
+    write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
+    dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
+        'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
 
 
 def check_leap_year(year, month):
