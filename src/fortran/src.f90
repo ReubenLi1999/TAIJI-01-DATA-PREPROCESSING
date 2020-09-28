@@ -5,16 +5,25 @@ module taiji_01_preprocessing
     implicit none
 
     type spacecraft
-        real(kind = 8)                      :: pos(3)                   !! position vector in earth-fixed frame
-        real(kind = 8)                      :: vel(3)                   !! velocity vector in earth-fixed frame
-        real(kind = 8)                      :: acc(3)                   !! accelaration vector in earth-fixed frame
-        real(kind = 8)                      :: pos_incr(3)              !! the possible jump of position vector in earth-fixed frame
-        real(kind = 8)                      :: vel_incr(3)              !! the possible jump of velocity vector in earth-fixed frame
-        real(kind = 8)                      :: vel_diffed(3)            !! the differentiation of velocity vector in earth-fixed frame
+        real(kind = 8)                      :: pos_e(3)                 !! position vector in earth-fixed frame
+        real(kind = 8)                      :: vel_e(3)                 !! velocity vector in earth-fixed frame
+        real(kind = 8)                      :: acc_e(3)                 !! accelaration vector in earth-fixed frame
+        real(kind = 8)                      :: pos_e_incr(3)            !! the possible jump of position vector in earth-fixed frame
+        real(kind = 8)                      :: vel_e_incr(3)            !! the possible jump of velocity vector in earth-fixed frame
+        real(kind = 8)                      :: vel_e_diffed(3)          !! the differentiation of velocity vector in earth-fixed frame
+        real(kind = 8)                      :: rvel_i(3)                !! the relative velocity to the atmosphere in the gcrs
+        real(kind = 8)                      :: rvel_s(3)                !! the relative velocity to the atmosphere in the srf
+        real(kind = 8)                      :: i2s_eul(3)               !! the euler angles representing the attitude from gcrs to srf
+        real(kind = 8)                      :: i2s_m(3, 3)              !! the direction cosine matrix of the corresponding i2s_eul
         real(kind = 8)                      :: time                     !! the corresponding gps time
         real(kind = 8)                      :: rcv_time                 !! the correspongding receiving time or satellite time
-        integer(kind = 4)                   :: pos_qualflg              !! the quality flag for position
-        integer(kind = 4)                   :: vel_qualflg              !! the quality flag for velocity
+        real(kind = 8)                      :: ambient_density          !! the ambient density of this satellite
+        real(kind = 8)                      :: area(3)                  !! the surface area of the satellite
+        real(kind = 8)                      :: theta_v2n                !! the angle of the surface normal vector and relative velocity
+        real(kind = 8)                      :: air_drag_i(3)            !! the air drag force in the gcrs
+        real(kind = 8)                      :: air_drag_s(3)            !! the air drag force in the srf
+        integer(kind = 4)                   :: pos_e_qualflg            !! the quality flag for pos_eition
+        integer(kind = 4)                   :: vel_e_qualflg            !! the quality flag for velocity
         integer(kind = 4)                   :: vac_qualflg              !! the flag that signals the vacuum before the epoch
         integer(kind = 4)                   :: month                    !! the month for the epoch of the spacecraft
         integer(kind = 4)                   :: dayofyear                !! the day of this year
@@ -25,25 +34,24 @@ module taiji_01_preprocessing
         integer(kind = 4)                   :: year                     !! the year of this epoch
     end type spacecraft
 
-    TYPE att
-        real(wp)                            :: eul(3)
-        real(wp)                            :: time
-        real(wp)                            :: eps_time
-        real(wp)                            :: rot(3, 3)
-    end type att
-
     type io_file
         character(len = 100)                :: name
         integer(kind = 4)                   :: unit
         integer(kind = 8)                   :: nrow
+        integer(kind = 4)                   :: nheader
+        character(len = 300), ALLOCATABLE   :: file_header(:)
     end type io_file
 
     type(spacecraft)    , allocatable       :: s(:)
-    type(io_file)       , allocatable       :: i_f(:)
-    type(io_file)       , allocatable       :: o_f(:)
-    type(io_file)       , ALLOCATABLE       :: f_f(:)
-    type(io_file)       , ALLOCATABLE       :: c_f(:)
-    type(io_file)                           :: log_f
+    type(io_file)       , allocatable       :: i_f(:) !! the input file
+    type(io_file)       , allocatable       :: o_f(:) !! the output file
+    type(io_file)       , ALLOCATABLE       :: f_f(:) !! the position and velocity flag file
+    type(io_file)       , ALLOCATABLE       :: c_f(:) !! clk file
+    type(io_file)       , ALLOCATABLE       :: d_f(:) !! the air density file
+    type(io_file)       , ALLOCATABLE       :: z_f(:) !! the attitude file
+    type(io_file)       , ALLOCATABLE       :: v_f(:) !! the relative velocity file included in the positions and velocities file in gcrs
+    type(io_file)       , ALLOCATABLE       :: a_f(:) !! the air drag accelaration file in the gcrs
+    type(io_file)                           :: log_f  !! the log file
     
 contains
     
@@ -74,13 +82,13 @@ contains
         INTEGER(kind = 8)                   :: index, i, j
 
         deglitch_loop: do i = 1, size(me), 1
-            if (me(i)%pos_qualflg == 1) then
-                me(i: size(me))%pos(1) = me(i: size(me))%pos(1) - me(i)%pos_incr(1)
-                me(i: size(me))%pos(2) = me(i: size(me))%pos(2) - me(i)%pos_incr(2)
-                me(i: size(me))%pos(3) = me(i: size(me))%pos(3) - me(i)%pos_incr(3)
-                me(i: size(me))%vel(1) = me(i: size(me))%vel(1) - me(i)%vel_incr(1)
-                me(i: size(me))%vel(2) = me(i: size(me))%vel(2) - me(i)%vel_incr(2)
-                me(i: size(me))%vel(3) = me(i: size(me))%vel(3) - me(i)%vel_incr(3)
+            if (me(i)%pos_e_qualflg == 1) then
+                me(i: size(me))%pos_e(1) = me(i: size(me))%pos_e(1) - me(i)%pos_e_incr(1)
+                me(i: size(me))%pos_e(2) = me(i: size(me))%pos_e(2) - me(i)%pos_e_incr(2)
+                me(i: size(me))%pos_e(3) = me(i: size(me))%pos_e(3) - me(i)%pos_e_incr(3)
+                me(i: size(me))%vel_e(1) = me(i: size(me))%vel_e(1) - me(i)%vel_e_incr(1)
+                me(i: size(me))%vel_e(2) = me(i: size(me))%vel_e(2) - me(i)%vel_e_incr(2)
+                me(i: size(me))%vel_e(3) = me(i: size(me))%vel_e(3) - me(i)%vel_e_incr(3)
             end if
         end do deglitch_loop
 
@@ -203,11 +211,11 @@ contains
 
         integer(kind = 8)                   :: i
 
-        write(o_file_unit, '(a)') 'gps_time, rcv_time, pos, vel, acc, vac_qualflg, vel_diffed, pj_qualflg, vp_qualflg'
+        write(o_file_unit, '(a)') 'gps_time, rcv_time, pos_e, vel, acc, vac_qualflg, vel_diffed, pj_qualflg, vp_qualflg'
 
         output_loop: do i = 1, size(me), 1
             write(o_file_unit, '(f15.1, 1x, 10f24.12, 1x, i1, 1x, 3f24.12, 1x, i1, 1x, i1)') s(i)%time, s(i)%rcv_time, &
-                                    s(i)%pos, s(i)%vel, s(i)%acc, s(i)%vac_qualflg, s(i)%vel_diffed, s(i)%pos_qualflg, s(i)%vel_qualflg
+                                    s(i)%pos_e, s(i)%vel_e, s(i)%acc_e, s(i)%vac_qualflg, s(i)%vel_e_diffed, s(i)%pos_e_qualflg, s(i)%vel_e_qualflg
         end do output_loop
 
     end subroutine output_data2file
@@ -321,10 +329,8 @@ program main
 
     integer(kind = 4)                       :: num_input_files
     integer(kind = 4)                       :: err1, err2, ios, err3, ios1, err
-    integer(kind = 4)                       :: nheader
     integer(kind = 8)                       :: index, i, j
 
-    character(len = 300), ALLOCATABLE       :: file_header(:)
     character(len = 100)                    :: date, time, zone
 
     real(kind = 8)                          :: temp
@@ -333,7 +339,6 @@ program main
     call CPU_TIME(start_epoch)
 
     num_input_files = 1
-    nheader = 91
     log_f%name = '..//log.txt'
     log_f%unit = 89
     
@@ -342,30 +347,41 @@ program main
          status="unknown", action="write", position="append")
     if (ios /= 0) stop "Error opening log file"
 
-    write(log_f%unit, *) '--------------------------------------------------------------------'
+    write(log_f%unit, *) '-------------------------------------------------------------------------'
     call DATE_AND_TIME(date, time, zone)
     write(log_f%unit, *) 'Date: ', date
     write(log_f%unit, *) 'Time: ', time
     write(*, *) 'Programme launching...'
     write(log_f%unit, *) 'Programme launching'
-
-    ! allocate the list to contain the file header
-    allocate(file_header(nheader), stat=err1)
-    if (err1 /= 0) print *, "file_header: Allocation request denied"
     
+    !----------------------------------------------------------------------------------------------!
     ! allocate the list to contain the information of input files
-    allocate(i_f(num_input_files), stat=err2)
-    if (err2 /= 0) print *, "i_f: Allocation request denied"
+    allocate(i_f(num_input_files), stat=err) !! the input positions and velocites file in itrs
+    if (err /= 0) print *, "i_f: Allocation request denied"
 
-    allocate(f_f(num_input_files), stat=err)
+    allocate(f_f(num_input_files), stat=err) !! the positions and velocities flag file
     if (err /= 0) print *, "f_f: Allocation request denied"
 
-    allocate(o_f(num_input_files), stat=err)
+    allocate(o_f(num_input_files), stat=err) !! the output file in itrs
     if (err /= 0) print *, "o_f: Allocation request denied"
 
-    allocate(c_f(num_input_files), stat=err)
+    allocate(c_f(num_input_files), stat=err) !! the clk file from satellite time to gps time
     if (err /= 0) print *, "c_f: Allocation request denied"
 
+    ALLOCATE(d_f(num_input_files), stat=err) !! the ambient air density file
+    if (err /= 0) print *, "d_f: Allocation request denied"
+
+    ALLOCATE(z_f(num_input_files), stat=err) !! the attitude file for tf2srf and gcrs2srf
+    if (err /= 0) print *, "z_f: Allocation request denied"
+
+    ALLOCATE(v_f(num_input_files), stat=err) !! the input relative velocities in gcrs
+    if (err /= 0) print *, "v_f: Allocation request denied"
+
+    ALLOCATE(a_f(num_input_files), stat=err) !! the output air drag exerting on the satellite in the gcrs
+    if (err /= 0) print *, "a_f: Allocation request denied"
+    !----------------------------------------------------------------------------------------------！
+
+    !----------------------------------------------------------------------------------------------!
     i_f%name = [ &
         '..//output//taiji-01-0860-earth-fixed-system-2019-09.txt' &
     ]
@@ -382,12 +398,43 @@ program main
         '..//input//09//KX09_SAT_1D_ENG_0111_20190900T000000_01_04.txt'&
     ]
 
+    d_f%name = [ &
+        '..//output/taiji-01-0860-wind-speed-air-density-2019-09.txt'&
+    ]
+
+    z_f%name = [ &
+        '..//output//taiji-01-0811-attitude-2019-09.txt' &
+    ]
+
+    v_f%name = [ &
+        '..//output//taiji-01-0866-gcrs-2019-09.txt' &
+    ]
+
+    a_f%name = [ &
+        '..//output//taiji-01-0222-air-drag-gcrs.txt' &
+    ]
+    !----------------------------------------------------------------------------------------------!
+
     month_file_loop: do index = 1, num_input_files, 1
         i_f(index)%unit = 34
         f_f(index)%unit = 76
         o_f(index)%unit = 29
         c_f(index)%unit = 59
+        d_f(index)%unit = 71
+        z_f(index)%unit = 55
+        v_f(index)%unit = 66
+        a_f(index)%unit = 49
+
+        i_f(index)%nheader = 91
+        f_f(index)%nheader = 1
+
+        !------------------------------------------------------------------------------------------!
+        ! allocate the list to contain the file header
+        allocate(i_f(index)%file_header(i_f(index)%nheader), stat=err)
+        if (err /= 0) print *, "file_header: Allocation request denied"
+        !------------------------------------------------------------------------------------------!
         
+        !------------------------------------------------------------------------------------------!
         open(unit=i_f(index)%unit, file=i_f(index)%name, iostat=ios, status="old", action="read")
         if (ios /= 0) stop "Error opening file unit i_f(index)%unit"
 
@@ -399,42 +446,61 @@ program main
 
         open(unit=c_f(index)%unit, file=c_f(index)%name, iostat=ios, status="unknown", action="write")
         if (ios /= 0) stop "Error opening file unit c_f(index)%unit"
-        
+
+        open(unit=d_f(index)%unit, file=d_f(index)%name, iostat=ios, status="unknown", action='read')
+        if (ios /= 0) stop "Error opening file unit d_f(index)%unit"
+
+        open(unit=z_f(index)%unit, file=z_f(index)%name, iostat=ios, status="unknown", action='read')
+        if (ios /= 0) stop "Error opening file unit z_f(index)%unit"
+
+        open(unit=v_f(index)%unit, file=v_f(index)%name, iostat=ios, status='unknown', action='read')
+        if (ios /= 0) stop "Error opening file unit v_f(index)%unit"
+
+        open(unit=a_f(index)%unit, file=a_f(index)%name, iostat=ios, status='unknown', action='write')
+        if (ios /= 0) stop "Error opening file unit a_f(index)%unit"
+        !------------------------------------------------------------------------------------------!
+
         ! get the number of rowsof the input files
         i_f(index)%nrow = get_file_n(i_f(index)%unit)
         f_f(index)%nrow = get_file_n(f_f(index)%unit)
-        if (i_f(index)%nrow - nheader /= f_f(index)%nrow - 1) stop "The nrows of gps file and increment file do not conform"
+        d_f(index)%nrow = get_file_n(d_f(index)%unit)
+        v_f(index)%nrow = get_file_n(v_f(index)%unit)
+        z_f(index)%nrow = get_file_n(z_f(index)%unit)
+
+        WRITE(*, *) i_f(index)%nrow, z_f(index)%nrow, v_f(index)%nrow, 
+
+        if (i_f(index)%nrow - i_f(index)%nheader /= f_f(index)%nrow - f_f(index)%nheader) stop "The nrows of gps file and increment file do not conform"
 
         ! read headers
-        read_header: do i = 1, nheader - 1, 1
-            read(i_f(index)%unit, '(a)') file_header(i)
-            write(o_f(index)%unit, '(a)') trim(file_header(i))
-        end do read_header
+        read_header_i: do i = 1, i_f(index)%nheader - 1, 1
+            read(i_f(index)%unit, '(a)') i_f(index)%file_header(i)  
+            write(o_f(index)%unit, '(a)') trim(i_f(index)%file_header(i))
+        end do read_header_i
 
         read(i_f(index)%unit, '(a)') temp
         read(f_f(index)%unit, '(a)') temp
 
         ! allocate the gps data matrix of this month
-        allocate(s(i_f(index)%nrow - nheader), stat=err3)
+        allocate(s(i_f(index)%nrow - i_f(index)%nheader), stat=err3)
         if (err3 /= 0) print *, "s: Allocation request denied"
 
-        read_data_gps: do i = 1, i_f(index)%nrow - nheader, 1
-            read(i_f(index)%unit, *) s(i)%time, s(i)%rcv_time, s(i)%pos, s(i)%vel
+        read_data_gps: do i = 1, i_f(index)%nrow - i_f(index)%nheader, 1
+            read(i_f(index)%unit, *) s(i)%time, s(i)%rcv_time, s(i)%pos_e, s(i)%vel_e
         end do read_data_gps
 
         read_data_increment: do i = 1, f_f(index)%nrow - 1, 1
-            read(f_f(index)%unit, *) s(i)%pos_qualflg, s(i)%vel_qualflg, s(i)%pos_incr, s(i)%vel_incr
+            read(f_f(index)%unit, *) s(i)%pos_e_qualflg, s(i)%vel_e_qualflg, s(i)%pos_e_incr, s(i)%vel_e_incr
         end do read_data_increment
 
         ! call gps_deglitch(s)
 
-        call diff9(s%time, s%vel(1), s%acc(1), 1.0_wp)
-        call diff9(s%time, s%vel(2), s%acc(2), 1.0_wp)
-        call diff9(s%time, s%vel(3), s%acc(3), 1.0_wp)
+        call diff9(s%time, s%vel_e(1), s%acc_e(1), 1.0_wp)
+        call diff9(s%time, s%vel_e(2), s%acc_e(2), 1.0_wp)
+        call diff9(s%time, s%vel_e(3), s%acc_e(3), 1.0_wp)
 
-        call diff9(s%time, s%pos(1), s%vel_diffed(1), 1.0_wp)
-        call diff9(s%time, s%pos(2), s%vel_diffed(2), 1.0_wp)
-        call diff9(s%time, s%pos(3), s%vel_diffed(3), 1.0_wp)
+        call diff9(s%time, s%pos_e(1), s%vel_e_diffed(1), 1.0_wp)
+        call diff9(s%time, s%pos_e(2), s%vel_e_diffed(2), 1.0_wp)
+        call diff9(s%time, s%pos_e(3), s%vel_e_diffed(3), 1.0_wp)
 
         call detect_missing(s%time, s%vac_qualflg)
 
@@ -442,6 +508,7 @@ program main
 
         call creat_clk_file(s, c_f(index)%unit)
         
+        !------------------------------------------------------------------------------------------!
         close(unit=i_f(index)%unit, iostat=ios)
         if (ios /= 0) stop "Error closing file unit i_f(index)%unit"
 
@@ -454,15 +521,29 @@ program main
         close(unit=c_f(index)%unit, iostat=ios)
         if (ios /= 0) stop "Error closing file unit c_f(index)%unit"
         
+        close(unit=d_f(index)%unit, iostat=ios)
+        if (ios /= 0) stop "Error closing file unit d_f(index)%unit"
+
+        close(unit=z_f(index)%unit, iostat=ios)
+        if (ios /= 0) stop "Error closing file unit z_f(index)%unit"
+
+        close(unit=v_f(index)%unit, iostat=ios)
+        if (ios /= 0) stop "Error closing file unit v_f(index)%unit"
+
+        close(unit=a_f(index)%unit, iostat=ios)
+        if (ios /= 0) stop "Error closing file unit a_f(index)%unit"
+
         if (allocated(s)) deallocate(s, stat=err3)
         if (err3 /= 0) print *, "s: Deallocation request denied"
+
+        if (allocated(i_f(index)%file_header)) deallocate(i_f(index)%file_header, stat=err)
+        if (err /= 0) print *, "file_header: Deallocation request denied"
+        !------------------------------------------------------------------------------------------!
     end do month_file_loop
 
-    if (allocated(file_header)) deallocate(file_header, stat=err1)
-    if (err1 /= 0) print *, "file_header: Deallocation request denied"
-
-    if (allocated(i_f)) deallocate(i_f, stat=err2)
-    if (err2 /= 0) print *, "i_f: Deallocation request denied"
+    !----------------------------------------------------------------------------------------------!
+    if (allocated(i_f)) deallocate(i_f, stat=err)
+    if (err /= 0) print *, "i_f: Deallocation request denied"
 
     if (allocated(f_f)) deallocate(f_f, stat=err)
     if (err /= 0) print *, "f_f: Deallocation request denied"
@@ -472,6 +553,19 @@ program main
 
     if (allocated(c_f)) deallocate(c_f, stat=err)
     if (err /= 0) print *, "c_f: Deallocation request denied"
+
+    if (allocated(d_f)) deallocate(d_f, stat=err)
+    if (err /= 0) print *, "d_f: Deallocation request denied"
+
+    if (allocated(z_f)) deallocate(z_f, stat=err)
+    if (err /= 0) print *, "z_f: Deallocation request denied"
+
+    if (allocated(v_f)) deallocate(v_f, stat=err)
+    if (err /= 0) print *, "v_f: Deallocation request denied"
+
+    if (allocated(a_f)) deallocate(a_f, stat=err)
+    if (err /= 0) print *, "a_f: Deallocation request denied"
+    !----------------------------------------------------------------------------------------------!
 
     call CPU_TIME(stop_epoch)
 

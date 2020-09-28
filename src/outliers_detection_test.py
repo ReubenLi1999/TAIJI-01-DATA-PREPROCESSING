@@ -2,7 +2,7 @@ import datetime
 import os
 import time
 from datetime import date
-from os import read
+from os import read, write
 
 import dask.dataframe as dd
 import hwm93
@@ -10,7 +10,12 @@ import matplotlib.pyplot as plt
 import msise00
 import numba
 import numpy as np
+import pandas as pd
+
 from astropy.config import configuration
+from astropy import coordinates as coor
+from astropy import units as u
+from astropy.time import Time as atime
 from astropy.coordinates import EarthLocation as el
 from auromat.coordinates import transform
 from matplotlib.ticker import LogLocator as LL
@@ -102,10 +107,12 @@ def read_input_file_names(filepath):
 
     output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
     flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
-    air_drag_par_filename = '..//output//taiji-01-0860-wind-speed-air-density-' + \
+    air_drag_par_filename = '..//output//taiji-01-0860-air-density-' + \
         str(year_this_month) + '-' + str_month_this_month + '.txt'
+    gcrs_filename = '..//output//taiji-01-0866-gcrs-' + str(year_this_month) + '-' + \
+        str_month_this_month + '.txt'
 
-    return filepaths_this_month, output_filename, flag_filename, air_drag_par_filename
+    return filepaths_this_month, output_filename, flag_filename, air_drag_par_filename, gcrs_filename
 
 
 def write_output_file_header(output_filename, epoch_pair, interpolated=False):
@@ -291,7 +298,7 @@ def creat_qualflg(df, flag_filename):
     # return position_flag, velocity_flag
 
 
-def air_drag_par(df, filename, sw_data):
+def air_drag_par(df, filename, sw_data, gcrs_filename):
     """ This function is designed to calculate the wind speed for the satellite.
 
     Args:
@@ -360,7 +367,7 @@ def air_drag_par(df, filename, sw_data):
     spos = np.c_[xpos, ypos, zpos]
     svel = np.c_[df.xvel.compute().to_numpy(), df.yvel.compute().to_numpy(), df.zvel.compute().to_numpy()]
     relative_velocity = svel * 1000.0 - winds_vector - np.cross(angular_vector, spos * 1000.)
-
+    itrs2gcrs(year, month, date, hour, minute, second, spos, relative_velocity, gps_time, gcrs_filename)
     return relative_velocity, air_density
 
 
@@ -372,8 +379,104 @@ def init_pyatmos():
     """
     swfile = download_sw()
     swdata = read_sw(swfile)
-    
+
     return swdata
+
+
+def itrs2gcrs(years, months, dates, hours, minutes, seconds, pos, vel, utc_time, gcrs_filename):
+    """ This function is to transform the coordinates and velocities from itrs into gcrs
+    """
+    date_list = []
+    for index, element in enumerate(zip(years, months, dates, hours, minutes, seconds)):
+        date_list.append(str(int(element[0])) + '-' + str(int(element[1])) + '-' + str(int(element[2])) + ' ' + \
+            str(int(element[3])) + ':' + str(int(element[4])) + ':' + str(element[5]))
+    a_date = atime(date_list)
+    pos = pos * u.km; vel = vel * u.km / u.s
+    itrs = coor.ITRS(x=pos[:, 0], y=pos[:, 1], z=pos[:, 2], v_x=vel[:, 0], v_y=vel[:, 1], v_z=vel[:,
+    2], representation_type='cartesian', differential_type='cartesian', obstime=a_date)
+    gcrs = itrs.transform_to(coor.GCRS(obstime=a_date))
+
+    gps_time = utc_time + 18.0
+    gcrs_xyz = np.asarray(gcrs.cartesian.xyz)
+
+    dd_igrf = dd.from_pandas(pd.DataFrame({'gps_time': gps_time, 'gcrs_x': gcrs_xyz[0],
+                                           'gcrs_y': gcrs_xyz[1], 'gcrs_z': gcrs_xyz[2],
+                                           'gcrs_rvx': np.asarray(gcrs.cartesian.differentials['s'].d_x),
+                                           'gcrs_rvy': np.asarray(gcrs.cartesian.differentials['s'].d_y),
+                                           'gcrs_rvz': np.asarray(gcrs.cartesian.differentials['s'].d_z)}),
+                             npartitions=1)
+    write_gcrs_file_header(gcrs_filename, dd_igrf)
+    dd_igrf.to_csv(gcrs_filename, single_file=True, sep='\t', index=False, mode='a+')
+
+
+def write_gcrs_file_header(output_filename, df):
+    """ This function is designed to write the header of the output file that is a imitation of the header for GRACE Follow-On date product.
+
+    Args:
+        output_filename (str): the string of the output filename.
+        epoch_pair (dict[dim=n], float64): the starting epoch and the ending epoch of the series of data and other helpful messages.
+    """
+
+    local_time = time.asctime(time.localtime(time.time()))
+
+    with open(output_filename, 'w+') as o_ef_unit:
+        o_ef_unit.write('header:\n')
+        o_ef_unit.write('\t' + 'dimensions: ' +
+                        str(df.__len__()) + '\n')
+        o_ef_unit.write('\t' + 'global_attributes: ' + '\n')
+        o_ef_unit.write('\t\t' + 'acknowledgement: ' + 'TAIJI-01 is the first grativational prospecting test satellite of China, one of whose ' +
+                        'core loads is inertial sensor, therefore, the GPS data of this satellite can be used in the inversion of coefficients of earth\'s gravity field.' + '\n')
+        o_ef_unit.write('\t\t' + 'creator_institution: CAS/IM\n')
+        o_ef_unit.write(
+            '\t\t' + 'creator_name: TAIJI-01 data product system\n')
+        o_ef_unit.write('\t\t' + 'creator_type: group\n')
+        o_ef_unit.write('\t\t' + 'date_created: ' + local_time + '\n')
+        o_ef_unit.write('\t\t' + 'institution: CAU\n')
+        o_ef_unit.write('\t\t' + 'instrument: GPS\n')
+        o_ef_unit.write('\t\t' + 'keywords: TAIJI-01, gravity field\n')
+        o_ef_unit.write('\t\t' + 'processing_level: 1D\n')
+        o_ef_unit.write('\t\t' + 'data_product: 0860\n')
+        o_ef_unit.write('\t\t' + 'program: Taiji Programme\n')
+        o_ef_unit.write('\t\t' + 'publisher_institution: CAS/ISSI\n')
+        o_ef_unit.write(
+            '\t\t' + 'source: Earth-Fixed Frame trajectories for TAIJI-01\n')
+        o_ef_unit.write(
+            '\t\t' + 'summary: 1-Hz trajectory states in the Earth-Fixed Frame\n')
+        o_ef_unit.write('\t\t' + 'time_coverage_start: ' +
+                        str(df.gps_time.compute().to_numpy()[0]) + '\n')
+        o_ef_unit.write('\t\t' + 'time_coverage_stop: ' +
+                        str(df.gps_time.compute().to_numpy()[-1]) + '\n')
+        o_ef_unit.write(
+            '\t\t' + 'title: TAIJI-01 Level-1D GPS Navigation Data\n')
+        o_ef_unit.write('\t' + 'varaibles:\n')
+        o_ef_unit.write('\t\t' + '- self_gps_time: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 1st column\n')
+        o_ef_unit.write('\t\t\t' + 'unit: second\n')
+        o_ef_unit.write('\t\t' + '- xpos: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 2nd column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the x position in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km\n')
+        o_ef_unit.write('\t\t' + '- ypos: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 3rd column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the y position in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km\n')
+        o_ef_unit.write('\t\t' + '- zpos: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 4th column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the z position in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km\n')
+        o_ef_unit.write('\t\t' + '- xrvel: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 5th column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the relative velocity x in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km/s\n')
+        o_ef_unit.write('\t\t' + '- yrvel: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 6th column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the relative velocity y in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km/s\n')
+        o_ef_unit.write('\t\t' + '- zrvel: \n')
+        o_ef_unit.write('\t\t\t' + 'comment: 7th column\n')
+        o_ef_unit.write('\t\t\t' + 'long_name: the relative velocity z in gcrs\n')
+        o_ef_unit.write('\t\t\t' + 'unit: km/s\n')
+        o_ef_unit.write('# End of header\n')
 
 
 @get_run_time
@@ -382,7 +485,7 @@ def outliers_detection():
     """
 
     # get the input file names and the output file name
-    filepaths_this_month, output_filename, flag_filename, air_drag_par_filename = read_input_file_names('..//input//9')
+    filepaths_this_month, output_filename, flag_filename, air_drag_par_filename, gcrs_filename = read_input_file_names('..//input//09')
 
     # read the input files all together
     dd_gps = dd.read_csv(urlpath=filepaths_this_month, sep=',', header=None,
@@ -417,16 +520,18 @@ def outliers_detection():
                   'version': 1, 'starting_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[0], 'ending_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[-1]}
 
     # calculate the wind speed
-    # sw_data = init_pyatmos()
-    # relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data)
+    sw_data = init_pyatmos()
+    relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data, gcrs_filename)
+    np.savetxt(air_drag_par_filename, air_density, fmt='%.10e', delimiter=' ', newline='\n',
+               header='Air density (kg / m^3)')
 
     # creat the qualflg
-    creat_qualflg(dd_gps, flag_filename)
+    # creat_qualflg(dd_gps, flag_filename)
 
     # write the output file
-    write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
-    dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
-        'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
+    # write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
+    # dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
+    #     'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
 
 
 def check_leap_year(year, month):
