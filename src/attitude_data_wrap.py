@@ -121,14 +121,13 @@ class Att(object):
         filtered_list = []
         for index, flag in enumerate(flags):
             filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
-            print(filtered_x.__len__())
             self.df = self.df.reset_index().set_index('index')
             filtered_list.append(flag + '_filt')
             self.df[filtered_list[index]] = 0
             self.df[filtered_list[index]] = self.df[filtered_list[index]].compute() + filtered_x
 
         # plot the frequency response
-        plot_freq_response(taps, fq)
+        # plot_freq_response(taps, fq)
         self.df = self.df.nsmallest(self.df.__len__(), 'gps_time')
 
         return filtered_list
@@ -149,7 +148,23 @@ class Att(object):
         flags.append('gps_time')
         flags[0], flags[1: ] = flags[-1], flags[0: -1]
 
-        print(self.df[flags[1]].compute().to_numpy()[-1])
+        rootdir = '..//output//'
+        list_file = os.listdir(rootdir)
+        for i in range(0, len(list_file)):
+            com_path = os.path.join(rootdir, list_file[i])
+            if os.path.isfile(com_path):
+                if ((outputfilename[-11: -4] in com_path) & ('after-fortran' in com_path)):
+                    gps_file = com_path
+
+        dd_gps = dd.read_csv(urlpath=gps_file, sep='\s+', header=None,
+                            engine='c', skiprows=91, storage_options=dict(auto_mkdir=False),
+                             names=['gps_time', 'rcv_time', 'pos_e1', 'pos_e2', 'pos_e3',
+                                    'vel1', 'vel2', 'vel3', 'acc1', 'acc2', 'acc3',
+                                    'vac_qualflg', 'vel_diffed1', 'vel_diff2', 'vel_diffed3',
+                                    'pj_qualflg', 'vp_qualflg'],
+                            dtype=np.float64, encoding='gb2312')
+        self.df = self.df[self.df['gps_time'].isin(dd_gps['gps_time'].compute().to_numpy())]
+
         self.df.to_csv(outputfilename, single_file=True, sep='\t', index=False, mode='a+',
                        columns=flags)
 
@@ -463,8 +478,8 @@ def main(year, month):
     flags_list = taiji_01_att.equidistant_quantity(['igrf_eul_x', 'igrf_eul_y', 'igrf_eul_z',
                                                     'tf_eul_x', 'tf_eul_y', 'tf_eul_z'], 0.25)
     filtered_list = taiji_01_att.down_sample(flags_list, cutoff_hz=1., fq=0.5 / 0.25)
-    # taiji_01_att.write_output_file_header(attd_file.output_filename)
-    # taiji_01_att.write_file(filtered_list, attd_file.output_filename)
+    taiji_01_att.write_output_file_header(attd_file.output_filename)
+    taiji_01_att.write_file(filtered_list, attd_file.output_filename)
 
     # freq_igrf_x, psd_igrf_x = welch(
     #     taiji_01_att.df.igrf_eul_x.compute().to_numpy(), 4., 'hanning', taiji_01_att.df.__len__(), scaling='density')
@@ -472,7 +487,7 @@ def main(year, month):
     #     taiji_01_att.df.igrf_eul_y.compute().to_numpy(), 4., 'hanning', taiji_01_att.df.__len__(), scaling='density')
     # freq_igrf_z, psd_igrf_z = welch(
     #     taiji_01_att.df.igrf_eul_z.compute().to_numpy(), 4., 'hanning', taiji_01_att.df.__len__(), scaling='density')
-# 
+
     # plt.style.use(['science', 'no-latex', 'high-vis'])
     # fig, ax = plt.subplots(figsize=(15, 8))
     # plt.plot(taiji_01_att.df.gps_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_x.compute().to_numpy(),
@@ -492,7 +507,7 @@ def main(year, month):
     # plt.gca().spines['top'].set_linewidth(2)
     # plt.gca().spines['right'].set_linewidth(2)
     # plt.gca().spines['bottom'].set_linewidth(2)
-    # 
+
     # fig, ax = plt.subplots(figsize=(15, 8))
     # plt.loglog(freq_igrf_x, np.sqrt(psd_igrf_x),
     #          linewidth=2, label='gcrs2srf_x')
@@ -511,7 +526,7 @@ def main(year, month):
     # plt.gca().spines['top'].set_linewidth(2)
     # plt.gca().spines['right'].set_linewidth(2)
     # plt.gca().spines['bottom'].set_linewidth(2)
-    # 
+
     # plt.show()
 
 

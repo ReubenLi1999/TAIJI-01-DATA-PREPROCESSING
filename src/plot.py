@@ -82,14 +82,14 @@ def atmos():
     plt.gca().spines['bottom'].set_linewidth(2)
     
     plt.show()
-    
-    
+
+
 def gcrs():
     dd_gcrs = dd.read_csv(urlpath='..//output//taiji-01-0866-gcrs-2019-09.txt', header=None,
                           engine='c', skiprows=50, storage_options=dict(auto_mkdir=False), sep='\t',
                           names=['gps_time', 'xpos', 'ypos', 'zpos', 'xrvel', 'yrvel', 'zrvel'],
                           dtype=np.float64, encoding='gb2312')
-    
+
     plt.style.use(['science', 'no-latex', 'high-vis'])
     fig, ax = plt.subplots(figsize=(15, 8))
     plt.plot(dd_gcrs.xpos.compute().to_numpy(), linewidth=2, label='xpos_gcrs')
@@ -107,7 +107,7 @@ def gcrs():
     plt.gca().spines['top'].set_linewidth(2)
     plt.gca().spines['right'].set_linewidth(2)
     plt.gca().spines['bottom'].set_linewidth(2)
-    
+
     fig, ax = plt.subplots(figsize=(15, 8))
     plt.plot(dd_gcrs.xrvel.compute().to_numpy(), linewidth=2, label='xrvel_gcrs')
     plt.plot(dd_gcrs.yrvel.compute().to_numpy(), linewidth=2, label='yrvel_gcrs')
@@ -127,9 +127,37 @@ def gcrs():
     plt.gca().spines['bottom'].set_linewidth(2)
 
     plt.show()
-    
-    
+
+
+def air_density():
+    dd_aird = dd.read_csv(urlpath='..//output//taiji-01-0222-air-drag-gcrs.txt', header=None,
+                          engine='c', skiprows=35, storage_options=dict(auto_mkdir=False), sep='\s+',
+                          names=['gps_time', 'xacc', 'yacc', 'zacc'],
+                          dtype=np.float64, encoding='gb2312')
+
+    plt.style.use(['science', 'no-latex', 'high-vis'])
+    fig, ax = plt.subplots(figsize=(15, 8))
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.xacc.compute().to_numpy(), linewidth=2, label='xacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.yacc.compute().to_numpy(), linewidth=2, label='yacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.zacc.compute().to_numpy(), linewidth=2, label='zacc_gcrs')
+    plt.tick_params(labelsize=25, width=2.9)
+    ax.yaxis.get_offset_text().set_fontsize(24)
+    ax.xaxis.get_offset_text().set_fontsize(24)
+    plt.xlabel('GPS time [s]', fontsize=20)
+    plt.ylabel('$Air \quad drag \quad accelaration [km/s^2]$', fontsize=20)
+    # plt.legend(fontsize=20, loc='best')
+    plt.legend(fontsize=20, loc='lower left', bbox_to_anchor=(
+        0, 1, 1, .1), ncol=3, mode='expand')
+    plt.grid(True, which='both', ls='dashed', color='0.5', linewidth=0.6)
+    plt.gca().spines['left'].set_linewidth(2)
+    plt.gca().spines['top'].set_linewidth(2)
+    plt.gca().spines['right'].set_linewidth(2)
+    plt.gca().spines['bottom'].set_linewidth(2)
+    plt.show()
+
+
 if __name__ == '__main__':
     # att()
     # atmos()
-    gcrs()
+    # gcrs()
+    air_density()

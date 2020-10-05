@@ -4,8 +4,9 @@ module taiji_01_preprocessing
 
     implicit none
 
-    type spacecraft
+    type, public:: spacecraft
         real(kind = 8)                      :: pos_e(3)                 !! position vector in earth-fixed frame
+        real(kind = 8)                      :: pos_i(3)                 !! position vector in the inertial frame
         real(kind = 8)                      :: vel_e(3)                 !! velocity vector in earth-fixed frame
         real(kind = 8)                      :: acc_e(3)                 !! accelaration vector in earth-fixed frame
         real(kind = 8)                      :: pos_e_incr(3)            !! the possible jump of position vector in earth-fixed frame
@@ -15,13 +16,23 @@ module taiji_01_preprocessing
         real(kind = 8)                      :: rvel_s(3)                !! the relative velocity to the atmosphere in the srf
         real(kind = 8)                      :: i2s_eul(3)               !! the euler angles representing the attitude from gcrs to srf
         real(kind = 8)                      :: i2s_m(3, 3)              !! the direction cosine matrix of the corresponding i2s_eul
+        real(kind = 8)                      :: s2i_m(3, 3)              !! the direction cosine matrix from srf to gcrs
+        real(kind = 8)                      :: t2s_eul(3)               !! the euler angles representing the attitude from trajectory frame to srf
+        real(kind = 8)                      :: t2s_m(3, 3)              !! the direction cosine matrix of the corresponding t2s_eul
         real(kind = 8)                      :: time                     !! the corresponding gps time
         real(kind = 8)                      :: rcv_time                 !! the correspongding receiving time or satellite time
         real(kind = 8)                      :: ambient_density          !! the ambient density of this satellite
-        real(kind = 8)                      :: area(3)                  !! the surface area of the satellite
-        real(kind = 8)                      :: theta_v2n                !! the angle of the surface normal vector and relative velocity
+        real(kind = 8)                      :: area(6)                  !! the surface area of the satellite
+        real(kind = 8)                      :: theta_v2n(6)             !! the angle of the surface normal vector and relative velocity in radian
         real(kind = 8)                      :: air_drag_i(3)            !! the air drag force in the gcrs
         real(kind = 8)                      :: air_drag_s(3)            !! the air drag force in the srf
+        real(kind = 8)                      :: eul(3)                   !! the ready euler angles
+        real(kind = 8)                      :: m(3, 3)                  !! the ready direction cosine matrix
+        real(kind = 8)                      :: surface_vector_s(6, 3)   !! the surface normal vectors of the satellite in the srf
+        real(kind = 8)                      :: surface_vector_i(6, 3)   !! the surface normal vectors of the satellite in the gcrs
+        real(kind = 8)                      :: mass                     !! the mass of the whole satellite
+        real(kind = 8)                      :: vector1(3), vector2(3)
+        real(kind = 8)                      :: angle
         integer(kind = 4)                   :: pos_e_qualflg            !! the quality flag for pos_eition
         integer(kind = 4)                   :: vel_e_qualflg            !! the quality flag for velocity
         integer(kind = 4)                   :: vac_qualflg              !! the flag that signals the vacuum before the epoch
@@ -32,6 +43,12 @@ module taiji_01_preprocessing
         integer(kind = 4)                   :: lon                      !! the longitude in the geodetic frame
         integer(kind = 4)                   :: alt                      !! the altitude in the geodetic frame
         integer(kind = 4)                   :: year                     !! the year of this epoch
+    
+    contains
+        procedure                           :: eul2m                      => eul2m
+        procedure                           :: angle2vectors              => angle2vectors
+        procedure                           :: air_drag                   => air_drag
+
     end type spacecraft
 
     type io_file
@@ -40,6 +57,8 @@ module taiji_01_preprocessing
         integer(kind = 8)                   :: nrow
         integer(kind = 4)                   :: nheader
         character(len = 300), ALLOCATABLE   :: file_header(:)
+    contains
+        procedure                           :: write_air_drag_file        => write_air_drag_file
     end type io_file
 
     type(spacecraft)    , allocatable       :: s(:)
@@ -52,6 +71,8 @@ module taiji_01_preprocessing
     type(io_file)       , ALLOCATABLE       :: v_f(:) !! the relative velocity file included in the positions and velocities file in gcrs
     type(io_file)       , ALLOCATABLE       :: a_f(:) !! the air drag accelaration file in the gcrs
     type(io_file)                           :: log_f  !! the log file
+
+    real(wp), PARAMETER                     :: pi = acos(-1.0_wp)
     
 contains
     
@@ -224,7 +245,7 @@ contains
         implicit none
 
         TYPE(spacecraft)  , intent(in   )     :: me(:)
-        INTEGER(ip), INTENT(IN   )            :: o_file_unit
+        INTEGER(ip)       , INTENT(IN   )     :: o_file_unit
         real(wp), allocatable                 :: gps_time(:)
         real(wp), ALLOCATABLE                 :: clk_drift(:)
 
@@ -285,39 +306,145 @@ contains
 
     end subroutine creat_clk_file
 
-    subroutine eul2m(eul, m, d_or_r)
+    subroutine eul2m(me, d_or_r, seq)
         implicit none
 
+        class(spacecraft) , INTENT(INout)   :: me
         CHARACTER(len = 1), INTENT(IN   )   :: d_or_r
-        real(wp)          , INTENT(INout)   :: eul(:, :)
-        real(wp)          , INTENT(INout)   :: m(:, :, :)
 
         real(wp), PARAMETER                 :: d2r_factor = acos(-1.0_wp) / 180.0_wp
 
+        real(wp)                            :: r(3, 3, 3)
+
         INTEGER(ip)                         :: i
         INTEGER(IP)                         :: nrows
+        INTEGER(ip)                         :: seq(3)
 
-        nrows = size(eul) / 3_ip
-        m = 0
+        nrows = size(me%eul) / 3_ip
+        me%m = 0
         !! degree to radian
         if (d_or_r == 'd') then
-            eul = eul * d2r_factor
+            me%eul = me%eul * d2r_factor
         else if ((d_or_r /= 'd') .or. (d_or_r /= 'r')) then
             stop "Error with bad degree/radian flag for computing rotation matrix from euler angles"
         end if
 
-        eul2m_loop: do i = 1, nrows, 1
-            m(i, 1, 1) = cos(eul(i, 2)) * cos(eul(i, 3))
-            m(i, 1, 2) = cos(eul(i, 3)) * sin(eul(i, 2)) * sin(eul(i, 1)) + sin(eul(i, 3)) * cos(eul(i, 1))
-            m(i, 1, 3) = -cos(eul(i, 3)) * sin(eul(i, 2)) * cos(eul(i, 1)) + sin(eul(i, 3)) * sin(eul(i, 1))
-            m(i, 2, 1) = -sin(eul(i, 3)) * cos(eul(i, 2))
-            m(i, 2, 2) = -sin(eul(i, 1)) * sin(eul(i, 2)) *sin(eul(i, 3)) + cos(eul(i, 1)) * cos(eul(i, 3))
-            m(i, 2, 3) = sin(eul(i, 3)) * sin(eul(i, 2)) * cos(eul(i, 1)) + cos(eul(i, 3)) * sin(eul(i, 1))
-            m(i, 3, 1) = sin(eul(i, 2))
-            m(i, 3, 2) = -cos(eul(i, 2)) * sin(eul(i, 1))
-            m(i, 3, 3) = cos(eul(i, 2)) * cos(eul(i, 1))
-        end do eul2m_loop
+        ! the first rotation matrix
+        r(1, 1, 1) =  1.0_wp
+        r(1, 1, 2) =  0.0_wp
+        r(1, 1, 3) =  0.0_wp
+        r(1, 2, 1) =  0.0_wp
+        r(1, 2, 2) =  cos(me%eul(1))
+        r(1, 2, 3) =  sin(me%eul(1))
+        r(1, 3, 1) =  0.0_wp
+        r(1, 3, 2) = -sin(me%eul(1))
+        r(1, 3, 3) =  cos(me%eul(1))
+
+        ! the second rotation matrix
+        r(2, 1, 1) =  cos(me%eul(2))
+        r(2, 1, 2) =  0.0_wp
+        r(2, 1, 3) = -sin(me%eul(2))
+        r(2, 2, 1) =  0.0_wp
+        r(2, 2, 2) =  1.0_wp
+        r(2, 2, 3) =  0.0_wp
+        r(2, 3, 1) =  sin(me%eul(2))
+        r(2, 3, 2) =  0.0_wp
+        r(2, 3, 3) =  cos(me%eul(2))
+
+        ! the third rotation matrix
+        r(3, 1, 1) =  cos(me%eul(3))
+        r(3, 1, 2) =  sin(me%eul(3))
+        r(3, 1, 3) =  0.0_wp
+        r(3, 2, 1) = -sin(me%eul(3))
+        r(3, 2, 2) =  cos(me%eul(3))
+        r(3, 2, 3) =  0.0_wp
+        r(3, 3, 1) =  0.0_wp
+        r(3, 3, 2) =  0.0_wp
+        r(3, 3, 3) =  1.0_wp
+
+        ! creat the rotation matrix following the sequence
+        me%m = matmul(r(seq(3), :, :), r(seq(1), :, :))
+        me%m = matmul(r(seq(2), :, :), me%m)
+
     end subroutine eul2m
+
+    subroutine angle2vectors(me)
+        implicit none
+
+        class(spacecraft), INTENT(INOUT)            :: me
+
+        me%angle = acos(dot_product(me%vector1, me%vector2) / norm2(me%vector1) * norm2(me%vector2))
+    end subroutine angle2vectors
+
+    subroutine air_drag(me, flag, j)
+        implicit none
+        class(spacecraft) , INTENT(INOUT)                :: me
+
+        CHARACTER(len = 1), INTENT(IN   )                :: flag
+
+        integer(kind = 8) , INTENT(IN   )                :: j
+
+        integer(kind = 4)                                :: k
+
+        if (flag == 'i') then 
+            if (me%theta_v2n(j) < (pi / 2.0)) then
+                    k = ceiling(j / 2.0_wp)
+                    me%air_drag_i(k) = 1.0_wp / 2.0_wp * me%ambient_density * &
+                                        cos(me%theta_v2n(j)) * me%area(j) * &
+                                        (-2.2_wp) * me%rvel_i(k) * &
+                                        norm2(me%rvel_i) / me%mass
+                end if
+        end if
+    end subroutine air_drag
+
+    subroutine write_air_drag_file(me)
+        implicit none
+        CLASS(io_file), INTENT(INOUT)               :: me
+
+        INTEGER(ip)                                 :: err, i
+
+        CHARACTER(len = 80)                         :: date, temp_c
+
+        !! obtain the date
+        call DATE_AND_TIME(date, temp_c, temp_c)
+
+        write(me%unit, '(a)') 'header:'
+        write(me%unit, '(4x, a)') 'global_attributes: '
+        write(me%unit, '(8x, a)') 'acknowledgement: TAIJI-01 is the first grativational prospecting test satellite of China, one of whose core loads is inertial sensor, therefore, the GPS data of this satellite can be used in the inversion of coefficients of earth gravity field.'
+        WRITE(me%unit, '(8x, a)') 'creator_institution: CAS/IM'
+        write(me%unit, '(8x, a)') 'creator_name: TAIJI-01 data product system'
+        write(me%unit, '(8x, a)') 'creator_type: group'
+        write(me%unit, '(8x, a, a)') 'date_created: ', date
+        write(me%unit, '(8x, a)') 'institution: CAU'
+        write(me%unit, '(8x, a)') 'instrument: GPS and local clock'
+        write(me%unit, '(8x, a)') 'keywords: TAIJI-01, gravity field'
+        WRITE(me%unit, '(8x, a)') 'processing_level: 1E'
+        write(me%unit, '(8x, a)') 'data_product: 0222'
+        write(me%unit, '(8x, a)') 'programme: Taiji Programme'
+        WRITE(me%unit, '(8x, a)') 'publisher_institution: CAS/ISSI'
+        write(me%unit, '(8x, a)') 'source: Earth-Fixed Frame trajectories for Taiji-01'
+        write(me%unit, '(8x, a)') 'summary: 1-Hz air drag accelaration in the inertial frame'
+        write(me%unit, '(8x, a)') 'title: Taiji-01 Clock Offset Data'
+        write(me%unit, '(4x, a)') 'varaiables: '
+        write(me%unit, '(8x, a)') '- gps_time: '
+        write(me%unit, '(12x, a)') 'comment: 1st column'
+        write(me%unit, '(12x, a)') 'long_name: Continuous seconds past the beginning epoch of this month'
+        write(me%unit, '(12x, a)') 'unit: second'
+        write(me%unit, '(8x, a)') '- air_drag_acc_x: '
+        write(me%unit, '(12x, a)') 'comment: 2nd column'
+        write(me%unit, '(12x, a)') 'long_name: the air drag accelaration along the x axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(8x, a)') '- air_drag_acc_y: '
+        write(me%unit, '(12x, a)') 'comment: 3rd column'
+        write(me%unit, '(12x, a)') 'long_name: the air drag accelaration along the y axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(8x, a)') '- air_drag_acc_z: '
+        write(me%unit, '(12x, a)') 'comment: 4th column'
+        write(me%unit, '(12x, a)') 'long_name: the air drag accelaration along the z axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(a)') '# End of header'
+
+    end subroutine write_air_drag_file
     
 end module taiji_01_preprocessing
 
@@ -329,11 +456,13 @@ program main
 
     integer(kind = 4)                       :: num_input_files
     integer(kind = 4)                       :: err1, err2, ios, err3, ios1, err
-    integer(kind = 8)                       :: index, i, j
+    integer(kind = 8)                       :: index, i, j, k
+    integer(kind = 4)                       :: count
 
     character(len = 100)                    :: date, time, zone
 
     real(kind = 8)                          :: temp
+    real(kind = 8)                          :: temp_i2s_eul(3), temp_t2s_eul(3)
     real(kind = 8)                          :: start_epoch, stop_epoch
 
     call CPU_TIME(start_epoch)
@@ -420,17 +549,29 @@ program main
         f_f(index)%unit = 76
         o_f(index)%unit = 29
         c_f(index)%unit = 59
-        d_f(index)%unit = 71
-        z_f(index)%unit = 55
-        v_f(index)%unit = 66
+        d_f(index)%unit = 39
+        z_f(index)%unit = 98
+        v_f(index)%unit = 68
         a_f(index)%unit = 49
 
         i_f(index)%nheader = 91
         f_f(index)%nheader = 1
+        d_f(index)%nheader = 1
+        z_f(index)%nheader = 44
+        v_f(index)%nheader = 50
 
         !------------------------------------------------------------------------------------------!
         ! allocate the list to contain the file header
         allocate(i_f(index)%file_header(i_f(index)%nheader), stat=err)
+        if (err /= 0) print *, "file_header: Allocation request denied"
+
+        allocate(z_f(index)%file_header(z_f(index)%nheader), stat=err)
+        if (err /= 0) print *, "file_header: Allocation request denied"
+
+        allocate(d_f(index)%file_header(d_f(index)%nheader), stat=err)
+        if (err /= 0) print *, "file_header: Allocation request denied"
+
+        allocate(v_f(index)%file_header(v_f(index)%nheader), stat=err)
         if (err /= 0) print *, "file_header: Allocation request denied"
         !------------------------------------------------------------------------------------------!
         
@@ -460,6 +601,7 @@ program main
         if (ios /= 0) stop "Error opening file unit a_f(index)%unit"
         !------------------------------------------------------------------------------------------!
 
+        !------------------------------------------------------------------------------------------!
         ! get the number of rowsof the input files
         i_f(index)%nrow = get_file_n(i_f(index)%unit)
         f_f(index)%nrow = get_file_n(f_f(index)%unit)
@@ -467,23 +609,46 @@ program main
         v_f(index)%nrow = get_file_n(v_f(index)%unit)
         z_f(index)%nrow = get_file_n(z_f(index)%unit)
 
-        WRITE(*, *) i_f(index)%nrow, z_f(index)%nrow, v_f(index)%nrow, 
+        if (i_f(index)%nrow - i_f(index)%nheader /= f_f(index)%nrow - f_f(index)%nheader) &
+        stop "The nrows of gps file and increment file do not conform"
 
-        if (i_f(index)%nrow - i_f(index)%nheader /= f_f(index)%nrow - f_f(index)%nheader) stop "The nrows of gps file and increment file do not conform"
+        if (i_f(index)%nrow - i_f(index)%nheader /= z_f(index)%nrow - z_f(index)%nheader) &
+        stop "The nrows of gps file and attitude file do not conform"
 
+        if (i_f(index)%nrow - i_f(index)%nheader /= v_f(index)%nrow - v_f(index)%nheader) &
+        stop "The nrows of gps file and gcrs file do not conform"
+
+        if (i_f(index)%nrow - i_f(index)%nheader /= d_f(index)%nrow - d_f(index)%nheader) &
+        stop "The nrows of gps file and ambient air density file do not conform"
+        !------------------------------------------------------------------------------------------!
+
+        !------------------------------------------------------------------------------------------!
         ! read headers
         read_header_i: do i = 1, i_f(index)%nheader - 1, 1
             read(i_f(index)%unit, '(a)') i_f(index)%file_header(i)  
             write(o_f(index)%unit, '(a)') trim(i_f(index)%file_header(i))
         end do read_header_i
 
+        read_header_z: do i = 1, z_f(index)%nheader, 1
+            read(z_f(index)%unit, '(a)') z_f(index)%file_header(i)
+        end do read_header_z
+
+        read_header_v: do i = 1, v_f(index)%nheader, 1
+            read(v_f(index)%unit, '(a)') v_f(index)%file_header(i)
+        end do read_header_v
+
         read(i_f(index)%unit, '(a)') temp
         read(f_f(index)%unit, '(a)') temp
+        read(d_f(index)%unit, '(a)') temp
+        !------------------------------------------------------------------------------------------!
 
+        !------------------------------------------------------------------------------------------!
         ! allocate the gps data matrix of this month
         allocate(s(i_f(index)%nrow - i_f(index)%nheader), stat=err3)
         if (err3 /= 0) print *, "s: Allocation request denied"
+        !------------------------------------------------------------------------------------------!
 
+        !------------------------------------------------------------------------------------------!
         read_data_gps: do i = 1, i_f(index)%nrow - i_f(index)%nheader, 1
             read(i_f(index)%unit, *) s(i)%time, s(i)%rcv_time, s(i)%pos_e, s(i)%vel_e
         end do read_data_gps
@@ -492,6 +657,23 @@ program main
             read(f_f(index)%unit, *) s(i)%pos_e_qualflg, s(i)%vel_e_qualflg, s(i)%pos_e_incr, s(i)%vel_e_incr
         end do read_data_increment
 
+        read_data_attitude: do i = 1, z_f(index)%nrow - z_f(index)%nheader, 4
+            read(z_f(index)%unit, *) temp, temp_i2s_eul, temp_t2s_eul
+            if (any(s%time == temp)) then
+                s(i)%i2s_eul = temp_i2s_eul; s(i)%t2s_eul = temp_t2s_eul
+            end if
+        end do read_data_attitude
+
+        read_data_density: do i = 1, d_f(index)%nrow - d_f(index)%nheader, 1
+            read(d_f(index)%unit, *) s(i)%ambient_density
+        end do read_data_density
+
+        read_data_gcrs: do i = 1, v_f(index)%nrow - v_f(index)%nheader, 1
+            read(v_f(index)%unit, *) temp, s(i)%pos_i, s(i)%rvel_i
+        end do read_data_gcrs
+        !------------------------------------------------------------------------------------------!
+
+        !------------------------------------------------------------------------------------------!
         ! call gps_deglitch(s)
 
         call diff9(s%time, s%vel_e(1), s%acc_e(1), 1.0_wp)
@@ -507,7 +689,40 @@ program main
         call output_data2file(s, o_f(index)%unit)
 
         call creat_clk_file(s, c_f(index)%unit)
+
+        call a_f(index)%write_air_drag_file()
         
+        air_drag_loop: do i = 1, i_f(index)%nrow - i_f(index)%nheader, 1
+
+            s(i)%mass = 183.0_wp  !! kg
+
+            call s(i)%eul2m('d', [3_ip, 1_ip, 2_ip])
+            s(i)%i2s_m = s(i)%m
+            s(i)%s2i_m = transpose(s(i)%i2s_m)
+
+            s(i)%area = [0.4356_wp, 0.4356_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp] ! m^2
+            s(i)%surface_vector_s(1, :) = [ 1.0_wp,  0.0_wp,  0.0_wp]
+            s(i)%surface_vector_s(2, :) = [-1.0_wp,  0.0_wp,  0.0_wp]
+            s(i)%surface_vector_s(3, :) = [ 0.0_wp,  1.0_wp,  0.0_wp]
+            s(i)%surface_vector_s(4, :) = [ 0.0_wp, -1.0_wp,  0.0_wp]
+            s(i)%surface_vector_s(5, :) = [ 0.0_wp,  0.0_wp,  1.0_wp]
+            s(i)%surface_vector_s(6, :) = [ 0.0_wp,  0.0_wp, -1.0_wp]
+
+            loop_surface_vector_trans: do j = 1, 6, 1
+                !! transform the surface normal vector from srf to gcrs
+                s(i)%surface_vector_i(j, :) = matmul(s(i)%s2i_m, s(i)%surface_vector_s(j, :))
+                !! the angle between the surface normal vector and the relative velocity in radian
+                s(i)%vector1 = s(i)%rvel_i; s(i)%vector2 = s(i)%surface_vector_i(j, :)
+                call s(i)%angle2vectors()
+                s(i)%theta_v2n = s(i)%angle
+                !! air drag in the inertial frame
+                call s(i)%air_drag('i', j)
+            end do loop_surface_vector_trans
+            !! output the air drag accelaration in the gcrs to a_f
+            write(a_f(index)%unit, '(f10.1, 4x, 3es25.13, 4x)') s(i)%time, s(i)%air_drag_i
+        end do air_drag_loop
+        !------------------------------------------------------------------------------------------!
+
         !------------------------------------------------------------------------------------------!
         close(unit=i_f(index)%unit, iostat=ios)
         if (ios /= 0) stop "Error closing file unit i_f(index)%unit"
@@ -537,6 +752,15 @@ program main
         if (err3 /= 0) print *, "s: Deallocation request denied"
 
         if (allocated(i_f(index)%file_header)) deallocate(i_f(index)%file_header, stat=err)
+        if (err /= 0) print *, "file_header: Deallocation request denied"
+
+        if (allocated(z_f(index)%file_header)) deallocate(z_f(index)%file_header, stat=err)
+        if (err /= 0) print *, "file_header: Deallocation request denied"
+
+        if (allocated(d_f(index)%file_header)) deallocate(d_f(index)%file_header, stat=err)
+        if (err /= 0) print *, "file_header: Deallocation request denied"
+
+        if (allocated(v_f(index)%file_header)) deallocate(v_f(index)%file_header, stat=err)
         if (err /= 0) print *, "file_header: Deallocation request denied"
         !------------------------------------------------------------------------------------------!
     end do month_file_loop
