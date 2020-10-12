@@ -50,14 +50,14 @@ class Att(object):
                 3600.0 + self.df['minute_rcv'] * 60.0 + self.df['second_rcv']
 
             # sort the dataframe with the gps time
-            # self.df = self.df[self.df['gps_time'] > 300000.0]
+            # self.df = self.df[self.df['utc_time'] > 300000.0]
             self.df['index'] = self.df['self_rcv_time']
             self.df = self.df.set_index('index')
             self.df = self.df.nsmallest(self.df.__len__(), 'self_rcv_time')
 
 
     def equidistant_quantity(self, flags, interval):
-        """ This function is designed to interpolate the original gps_time physical quantity sereis
+        """ This function is designed to interpolate the original utc_time physical quantity sereis
             to an equidistant one
 
         Args:
@@ -81,13 +81,13 @@ class Att(object):
         temp[:, 0] = time_span
 
         for index, flag in enumerate(flags):
-            interp_func = interpolate.interp1d(self.df['gps_time'].compute().to_numpy(),
+            interp_func = interpolate.interp1d(self.df['utc_time'].compute().to_numpy(),
                                                self.df[flag].compute().to_numpy(), kind='linear',
                                                bounds_error=False, fill_value='extrapolate')
             flags_list.append(flag + '_interp')
             temp[:, index + 1] = interp_func(time_span)
 
-        self.df = dd.from_pandas(pd.DataFrame({'gps_time': temp[:, 0],
+        self.df = dd.from_pandas(pd.DataFrame({'utc_time': temp[:, 0],
                                                flags_list[0]: temp[:, 1],
                                                flags_list[1]: temp[:, 2],
                                                flags_list[2]: temp[:, 3],
@@ -128,7 +128,7 @@ class Att(object):
 
         # plot the frequency response
         # plot_freq_response(taps, fq)
-        self.df = self.df.nsmallest(self.df.__len__(), 'gps_time')
+        self.df = self.df.nsmallest(self.df.__len__(), 'utc_time')
 
         return filtered_list
 
@@ -145,7 +145,7 @@ class Att(object):
         Returns:
             [type]: [description]
         """
-        flags.append('gps_time')
+        flags.append('utc_time')
         flags[0], flags[1: ] = flags[-1], flags[0: -1]
 
         rootdir = '..//output//'
@@ -158,12 +158,12 @@ class Att(object):
 
         dd_gps = dd.read_csv(urlpath=gps_file, sep='\s+', header=None,
                             engine='c', skiprows=91, storage_options=dict(auto_mkdir=False),
-                             names=['gps_time', 'rcv_time', 'pos_e1', 'pos_e2', 'pos_e3',
+                             names=['utc_time', 'rcv_time', 'pos_e1', 'pos_e2', 'pos_e3',
                                     'vel1', 'vel2', 'vel3', 'acc1', 'acc2', 'acc3',
                                     'vac_qualflg', 'vel_diffed1', 'vel_diff2', 'vel_diffed3',
                                     'pj_qualflg', 'vp_qualflg'],
                             dtype=np.float64, encoding='gb2312')
-        self.df = self.df[self.df['gps_time'].isin(dd_gps['gps_time'].compute().to_numpy())]
+        self.df = self.df[self.df['utc_time'].isin(dd_gps['utc_time'].compute().to_numpy())]
 
         self.df.to_csv(outputfilename, single_file=True, sep='\t', index=False, mode='a+',
                        columns=flags)
@@ -198,12 +198,12 @@ class Att(object):
             o_ef_unit.write('\t\t' + 'publisher_institution: CAS/ISSI\n')
             o_ef_unit.write('\t\t' + 'source: Earth-Fixed Frame trajectories for TAIJI-01\n')
             o_ef_unit.write('\t\t' + 'summary: 1-Hz trajectory states in the Earth-Fixed Frame\n')
-            o_ef_unit.write('\t\t' + 'time_coverage_start: ' + str(self.df.gps_time.compute().to_numpy()[0]) + '\n')
+            o_ef_unit.write('\t\t' + 'time_coverage_start: ' + str(self.df.utc_time.compute().to_numpy()[0]) + '\n')
             o_ef_unit.write('\t\t' + 'time_coverage_stop: ' +
-                            str(self.df.gps_time.compute().to_numpy()[0]) + '\n')
+                            str(self.df.utc_time.compute().to_numpy()[0]) + '\n')
             o_ef_unit.write('\t\t' + 'title: TAIJI-01 Level-1D GPS Navigation Data\n')
             o_ef_unit.write('\t' + 'varaibles:\n')
-            o_ef_unit.write('\t\t' + '- self_gps_time: \n')
+            o_ef_unit.write('\t\t' + '- self_utc_time: \n')
             o_ef_unit.write('\t\t\t' + 'comment: 1st column\n')
             o_ef_unit.write('\t\t\t' + 'unit: second\n')
             o_ef_unit.write('\t\t' + '- igrf_eul_x: \n')
@@ -426,17 +426,17 @@ def rcvt2gpst(df_rcv, df_eps):
 
     Args:
         df_rcv (dask.dataframe): dataframe containing the rcv_time column
-        df_eps (dask.dataframe): dataframe containing the time offset of rcv_time from gps_time
+        df_eps (dask.dataframe): dataframe containing the time offset of rcv_time from utc_time
     """
     eps_time_interp = interpolate.interp1d(df_eps['rcv_time'].compute().to_numpy(),
                                            df_eps['eps_time'].compute().to_numpy(), kind='linear',
                                            bounds_error=False, fill_value='extrapolate')
     eps_time = eps_time_interp(df_rcv.self_rcv_time.compute().to_numpy())
     df_rcv = df_rcv.reset_index().set_index('index')
-    df_rcv['gps_time'] = df_rcv.self_rcv_time.compute() + eps_time + 52588800.0
+    df_rcv['utc_time'] = df_rcv.self_rcv_time.compute() + eps_time + 52588800.0
 
-    # resort according to the gps_time
-    df_rcv = df_rcv.nsmallest(df_rcv.__len__(), 'gps_time')
+    # resort according to the utc_time
+    df_rcv = df_rcv.nsmallest(df_rcv.__len__(), 'utc_time')
 
     return df_rcv
 
@@ -490,11 +490,11 @@ def main(year, month):
 
     # plt.style.use(['science', 'no-latex', 'high-vis'])
     # fig, ax = plt.subplots(figsize=(15, 8))
-    # plt.plot(taiji_01_att.df.gps_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_x.compute().to_numpy(),
+    # plt.plot(taiji_01_att.df.utc_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_x.compute().to_numpy(),
     #          linewidth=2, label='gcrs2srf_x')
-    # plt.plot(taiji_01_att.df.gps_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_y.compute().to_numpy(),
+    # plt.plot(taiji_01_att.df.utc_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_y.compute().to_numpy(),
     #          linewidth=2, label='gcrs2srf_y')
-    # plt.plot(taiji_01_att.df.gps_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_z.compute().to_numpy(),
+    # plt.plot(taiji_01_att.df.utc_time.compute().to_numpy(), taiji_01_att.df.igrf_eul_z.compute().to_numpy(),
     #          linewidth=2, label='gcrs2srf_z')
     # plt.tick_params(labelsize=25, width=2.9)
     # ax.yaxis.get_offset_text().set_fontsize(24)

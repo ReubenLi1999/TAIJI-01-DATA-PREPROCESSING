@@ -105,11 +105,11 @@ def read_input_file_names(filepath):
     else:
         str_month_this_month = str(month_this_month)
 
-    output_filename = '..//output//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
-    flag_filename = '..//output//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
-    air_drag_par_filename = '..//output//taiji-01-0860-air-density-' + \
+    output_filename = '..//output//' + str_month_this_month + '//taiji-01-0860-earth-fixed-system-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
+    flag_filename = '..//output//' + str_month_this_month + '//taiji-01-0860-position-velocity-flag-' + str(year_this_month) + '-' + str_month_this_month + '.txt'
+    air_drag_par_filename = '..//output//' + str_month_this_month + '//taiji-01-0860-air-density-' + \
         str(year_this_month) + '-' + str_month_this_month + '.txt'
-    gcrs_filename = '..//output//taiji-01-0866-gcrs-' + str(year_this_month) + '-' + \
+    gcrs_filename = '..//output//' + str_month_this_month + '//taiji-01-0866-gcrs-' + str(year_this_month) + '-' + \
         str_month_this_month + '.txt'
 
     return filepaths_this_month, output_filename, flag_filename, air_drag_par_filename, gcrs_filename
@@ -148,7 +148,7 @@ def write_output_file_header(output_filename, epoch_pair, interpolated=False):
         o_ef_unit.write('\t\t' + 'time_coverage_stop: ' + str(epoch_pair['ending_epoch_gps']) + '\n')
         o_ef_unit.write('\t\t' + 'title: TAIJI-01 Level-1D GPS Navigation Data\n')
         o_ef_unit.write('\t' + 'varaibles:\n')
-        o_ef_unit.write('\t\t' + '- self_gps_time: \n')
+        o_ef_unit.write('\t\t' + '- self_utc_time: \n')
         o_ef_unit.write('\t\t\t' + 'comment: 1st column\n')
         o_ef_unit.write('\t\t\t' + 'long_name: Continuous seconds past ' + str(epoch_pair['starting_epoch_gps']) + '\n')
         o_ef_unit.write('\t\t\t' + 'unit: second\n')
@@ -226,8 +226,8 @@ def creat_qualflg(df, flag_filename):
         df (dataframe): this is the dataframe containing the time, positions and velocities.
     """
 
-    gps_time = df['gps_time'].compute().to_numpy()
-    gps_time = gps_time - gps_time[0]
+    utc_time = df['utc_time'].compute().to_numpy()
+    utc_time = utc_time - utc_time[0]
     position_incr = np.zeros([df.__len__(), 3]); velocity_incr = np.zeros([df.__len__(), 3])
     trajectory = df[['xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel']].compute().to_numpy()
     trajectory_flag = np.abs(np.diff(np.diff(trajectory, axis=0), axis=0))
@@ -298,7 +298,7 @@ def creat_qualflg(df, flag_filename):
     # return position_flag, velocity_flag
 
 
-def air_drag_par(df, filename, sw_data, gcrs_filename):
+def air_drag_par(df, filename, sw_data, gcrs_filename, date_i):
     """ This function is designed to calculate the wind speed for the satellite.
 
     Args:
@@ -310,14 +310,17 @@ def air_drag_par(df, filename, sw_data, gcrs_filename):
     year = np.dot(np.ones(df.__len__()), year).astype(np.int)
     month = np.int(filename[-6: -4])
     month = np.dot(np.ones(df.__len__()), month).astype(np.int)
-    gps_time = df.gps_time.compute().to_numpy() - 18.0
+    utc_time = df.utc_time.compute().to_numpy()
     xpos = df.xpos.compute().to_numpy()
     ypos = df.ypos.compute().to_numpy()
     zpos = df.zpos.compute().to_numpy()
-    date = np.floor((gps_time - gps_time[0] + 8. * 3600.) / 86400.).astype(np.int) + 1.
-    hour = np.floor((gps_time - gps_time[0] - (date - 1) * 86400.) / 3600.).astype(np.int) + 8.
-    minute = np.floor((gps_time - gps_time[0] - (hour - 8.0) * 3600.0 - (date - 1.0) * 86400.) / 60.).astype(np.int)
-    second = np.mod((gps_time - gps_time[0] - (hour - 8.0) * 3600.0 - (date - 1.0) * 86400. - minute * 60.0), 60.).astype(np.int)
+    date = np.floor((utc_time - utc_time[0]) / 86400.).astype(np.int) + date_i
+    hour = np.floor(
+        (utc_time - utc_time[0] - (date - date_i) * 86400.) / 3600.).astype(np.int)
+    minute = np.floor(
+        (utc_time - utc_time[0] - hour * 3600.0 - (date - date_i) * 86400.) / 60.).astype(np.int)
+    second = np.mod((utc_time - utc_time[0] - hour * 3600.0 - (
+        date - date_i) * 86400. - minute * 60.0), 60.).astype(np.int)
     # using astropy transform ecef to geodetic
     pos_el = el.from_geocentric(x=xpos, y=ypos, z=zpos, unit='km')
     lla_el = pos_el.to_geodetic()
@@ -364,10 +367,12 @@ def air_drag_par(df, filename, sw_data, gcrs_filename):
     winds_x = ew_x + ns_x; winds_y = ew_y + ns_y; winds_z = ew_z + ns_z
     winds_vector = np.c_[winds_x, winds_y, winds_z]
     angular_vector = np.asarray([0.0, 0.0, 7.2921158553e-5])
+
     spos = np.c_[xpos, ypos, zpos]
     svel = np.c_[df.xvel.compute().to_numpy(), df.yvel.compute().to_numpy(), df.zvel.compute().to_numpy()]
-    relative_velocity = svel * 1000.0 - winds_vector - np.cross(angular_vector, spos * 1000.)
-    itrs2gcrs(year, month, date, hour, minute, second, spos, relative_velocity, gps_time, gcrs_filename)
+    relative_velocity = (svel * 1000. - winds_vector - np.cross(angular_vector, spos * 1000.)) / 1000.
+    itrs2gcrs(year, month, date, hour, minute, second, spos, relative_velocity, utc_time, gcrs_filename)
+
     return relative_velocity, air_density
 
 
@@ -390,16 +395,16 @@ def itrs2gcrs(years, months, dates, hours, minutes, seconds, pos, vel, utc_time,
     for index, element in enumerate(zip(years, months, dates, hours, minutes, seconds)):
         date_list.append(str(int(element[0])) + '-' + str(int(element[1])) + '-' + str(int(element[2])) + ' ' + \
             str(int(element[3])) + ':' + str(int(element[4])) + ':' + str(element[5]))
+
     a_date = atime(date_list)
     pos = pos * u.km; vel = vel * u.km / u.s
     itrs = coor.ITRS(x=pos[:, 0], y=pos[:, 1], z=pos[:, 2], v_x=vel[:, 0], v_y=vel[:, 1], v_z=vel[:,
     2], representation_type='cartesian', differential_type='cartesian', obstime=a_date)
     gcrs = itrs.transform_to(coor.GCRS(obstime=a_date))
 
-    gps_time = utc_time + 18.0
     gcrs_xyz = np.asarray(gcrs.cartesian.xyz)
 
-    dd_igrf = dd.from_pandas(pd.DataFrame({'gps_time': gps_time, 'gcrs_x': gcrs_xyz[0],
+    dd_igrf = dd.from_pandas(pd.DataFrame({'utc_time': utc_time, 'gcrs_x': gcrs_xyz[0],
                                            'gcrs_y': gcrs_xyz[1], 'gcrs_z': gcrs_xyz[2],
                                            'gcrs_rvx': np.asarray(gcrs.cartesian.differentials['s'].d_x),
                                            'gcrs_rvy': np.asarray(gcrs.cartesian.differentials['s'].d_y),
@@ -425,14 +430,14 @@ def write_gcrs_file_header(output_filename, df):
                         str(df.__len__()) + '\n')
         o_ef_unit.write('\t' + 'global_attributes: ' + '\n')
         o_ef_unit.write('\t\t' + 'acknowledgement: ' + 'TAIJI-01 is the first grativational prospecting test satellite of China, one of whose ' +
-                        'core loads is inertial sensor, therefore, the GPS data of this satellite can be used in the inversion of coefficients of earth\'s gravity field.' + '\n')
+                        'core loads is inertial sensor, therefore, the Beidou data of this satellite can be used in the inversion of coefficients of earth\'s gravity field.' + '\n')
         o_ef_unit.write('\t\t' + 'creator_institution: CAS/IM\n')
         o_ef_unit.write(
             '\t\t' + 'creator_name: TAIJI-01 data product system\n')
         o_ef_unit.write('\t\t' + 'creator_type: group\n')
         o_ef_unit.write('\t\t' + 'date_created: ' + local_time + '\n')
         o_ef_unit.write('\t\t' + 'institution: CAU\n')
-        o_ef_unit.write('\t\t' + 'instrument: GPS\n')
+        o_ef_unit.write('\t\t' + 'instrument: Beidou receiver\n')
         o_ef_unit.write('\t\t' + 'keywords: TAIJI-01, gravity field\n')
         o_ef_unit.write('\t\t' + 'processing_level: 1D\n')
         o_ef_unit.write('\t\t' + 'data_product: 0860\n')
@@ -443,13 +448,12 @@ def write_gcrs_file_header(output_filename, df):
         o_ef_unit.write(
             '\t\t' + 'summary: 1-Hz trajectory states in the Earth-Fixed Frame\n')
         o_ef_unit.write('\t\t' + 'time_coverage_start: ' +
-                        str(df.gps_time.compute().to_numpy()[0]) + '\n')
+                        str(df.utc_time.compute().to_numpy()[0]) + '\n')
         o_ef_unit.write('\t\t' + 'time_coverage_stop: ' +
-                        str(df.gps_time.compute().to_numpy()[-1]) + '\n')
-        o_ef_unit.write(
-            '\t\t' + 'title: TAIJI-01 Level-1D GPS Navigation Data\n')
+                        str(df.utc_time.compute().to_numpy()[-1]) + '\n')
+        o_ef_unit.write('\t\t' + 'title: TAIJI-01 Level-1D Beidou Navigation Data\n')
         o_ef_unit.write('\t' + 'varaibles:\n')
-        o_ef_unit.write('\t\t' + '- self_gps_time: \n')
+        o_ef_unit.write('\t\t' + '- self_utc_time: \n')
         o_ef_unit.write('\t\t\t' + 'comment: 1st column\n')
         o_ef_unit.write('\t\t\t' + 'unit: second\n')
         o_ef_unit.write('\t\t' + '- xpos: \n')
@@ -483,6 +487,7 @@ def write_gcrs_file_header(output_filename, df):
 def outliers_detection():
     """ This function is designed to find the outliers for the GPS data in earth-fixed system of Taiji-01.
     """
+    date_init = 16.0
 
     # get the input file names and the output file name
     filepaths_this_month, output_filename, flag_filename, air_drag_par_filename, gcrs_filename = read_input_file_names('..//input//09')
@@ -491,16 +496,17 @@ def outliers_detection():
     dd_gps = dd.read_csv(urlpath=filepaths_this_month, sep=',', header=None,
                          engine='c', skiprows=2, storage_options=dict(auto_mkdir=False), names=['rcv_time', 'gn001',
                          'gn002', 'gn003', 'gn004', 'gn005', 'gn006', 'gn007', 'gn008', 'gn009', 'gn010', 'gn011',
-                         'gn012', 'gn013', 'gn014', 'gn015-0', 'gps_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel',
+                         'gn012', 'gn013', 'gn014', 'gn015-0', 'gn15-1', 'gn16', 'gn17', 'gn18', 'gn19', 'gn20', 'gn21',
                          'gn022', 'gn023', 'gn024', 'gn025', 'gn026', 'gn027', 'gn028', 'gn029', 'gn030', 'gn031', 'gn032',
-                         'gn033', 'gn034', 'gn035', 'gn036', 'gn037', 'gn038', 'gn039', 'gn040', 'gn041', 'gn042', 'gn043',
+                         'gn033', 'gn034', 'utc_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel', 'gn042', 'gn043',
                          'gn044', 'gn045', 'gn046', 'gn047', 'gn048', 'gn049', 'gn050', 'gn051', 'gn052', 'gn053', 'gn054',
                          'gn055', 'gn056', 'gn057', 'WTF1', 'WTF2', 'WTF3'], dtype={'xpos': np.float64, 'ypos': np.float64, 'zpos': np.float64,
                          'xvel': np.float64, 'yvel': np.float64, 'zvel': np.float64, 'gn056': 'object'}, encoding='gb2312')
 
     # compute the self time frame
     dd_gps = dd_gps.drop_duplicates(subset=['rcv_time'])
-    dd_gps = dd_gps[['rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel', 'gps_time']]
+    dd_gps = dd_gps.drop_duplicates(subset=['utc_time'])
+    dd_gps = dd_gps[['rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel', 'utc_time']]
     dd_gps['T-bfore_rcv'] = dd_gps['rcv_time'].str.partition('T')[0]
     dd_gps['T-after_rcv'] = dd_gps['rcv_time'].str.partition('T')[2]
     dd_gps['year_rcv'] = dd_gps['T-bfore_rcv'].str.partition('-')[0].astype(np.int32)
@@ -512,26 +518,27 @@ def outliers_detection():
     dd_gps['self_rcv_time'] = (dd_gps['date_rcv'] - 1.0) * 86400.0 + dd_gps['hour_rcv'] * 3600.0 + dd_gps['minute_rcv'] * 60.0 + dd_gps['second_rcv']
 
     # sort the dataframe with the gps time
-    dd_gps = dd_gps[dd_gps['gps_time'] > 300000.0]
-    dd_gps = dd_gps.nsmallest(dd_gps.__len__(), 'gps_time')
+    dd_gps = dd_gps[dd_gps['utc_time'] > 300000.0]
+    dd_gps = dd_gps.nsmallest(dd_gps.__len__(), 'utc_time')
 
-    epoch_pair = {'starting_epoch_gps': dd_gps['gps_time'].compute().to_numpy()[0], 'ending_epoch_gps': dd_gps['gps_time'].compute().to_numpy()[-1],
-                  'columns': dd_gps.__len__(), 'instrument': 'GPS', 'data_type': 'earth_fixed_system_positions_and_velocities',
+    epoch_pair = {'starting_epoch_gps': dd_gps['utc_time'].compute().to_numpy()[0], 'ending_epoch_gps': dd_gps['utc_time'].compute().to_numpy()[-1],
+                  'columns': dd_gps.__len__(), 'instrument': 'Beidou', 'data_type': 'earth_fixed_system_positions_and_velocities',
                   'version': 1, 'starting_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[0], 'ending_epoch_rcv': dd_gps['rcv_time'].compute().to_numpy()[-1]}
 
     # calculate the wind speed
     sw_data = init_pyatmos()
-    relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data, gcrs_filename)
+    relative_velocity, air_density = air_drag_par(dd_gps, air_drag_par_filename, sw_data, gcrs_filename, date_init)
     np.savetxt(air_drag_par_filename, air_density, fmt='%.10e', delimiter=' ', newline='\n',
                header='Air density (kg / m^3)')
 
     # creat the qualflg
-    # creat_qualflg(dd_gps, flag_filename)
+    creat_qualflg(dd_gps, flag_filename)
 
     # write the output file
-    # write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
-    # dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
-    #     'gps_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
+    write_output_file_header(output_filename=output_filename, epoch_pair=epoch_pair)
+
+    dd_gps.to_csv(output_filename, single_file=True, sep='\t', index=False, mode='a+', columns=[
+        'utc_time', 'self_rcv_time', 'xpos', 'ypos', 'zpos', 'xvel', 'yvel', 'zvel'])
 
 
 def check_leap_year(year, month):

@@ -130,16 +130,16 @@ def gcrs():
 
 
 def air_density():
-    dd_aird = dd.read_csv(urlpath='..//output//taiji-01-0222-air-drag-gcrs.txt', header=None,
-                          engine='c', skiprows=35, storage_options=dict(auto_mkdir=False), sep='\s+',
-                          names=['gps_time', 'xacc', 'yacc', 'zacc'],
+    dd_aird = dd.read_csv(urlpath='..//output//taiji-01-0222-non-gravitational-gcrs-2019-09.txt', header=None,
+                          engine='c', skiprows=47, storage_options=dict(auto_mkdir=False), sep='\s+',
+                          names=['gps_time', 'xacc_a', 'yacc_a', 'zacc_a', 'xacc_s', 'yacc_s', 'zacc_s'],
                           dtype=np.float64, encoding='gb2312')
 
     plt.style.use(['science', 'no-latex', 'high-vis'])
     fig, ax = plt.subplots(figsize=(15, 8))
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.xacc.compute().to_numpy(), linewidth=2, label='xacc_gcrs')
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.yacc.compute().to_numpy(), linewidth=2, label='yacc_gcrs')
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.zacc.compute().to_numpy(), linewidth=2, label='zacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.zacc_s.compute().to_numpy(), linewidth=1, label='zacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.yacc_s.compute().to_numpy(), linewidth=1, label='yacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.xacc_s.compute().to_numpy(), linewidth=1, label='xacc_gcrs')
     plt.tick_params(labelsize=25, width=2.9)
     ax.yaxis.get_offset_text().set_fontsize(24)
     ax.xaxis.get_offset_text().set_fontsize(24)
@@ -153,6 +153,74 @@ def air_density():
     plt.gca().spines['top'].set_linewidth(2)
     plt.gca().spines['right'].set_linewidth(2)
     plt.gca().spines['bottom'].set_linewidth(2)
+    plt.savefig('..//images//solar_pressure_gcrs_shadow.png')
+    plt.show()
+
+
+def gracefo_gps():
+    dd_gps = dd.read_csv(urlpath='..//input//GNV1B_2019-01-01_C_04.txt', header=None,
+                         engine='c', skiprows=148, storage_options=dict(auto_mkdir=False), sep='\s+',
+                         names=['gps_time', 'id', 'frame', 'xpos', 'ypos', 'zpos', 'xposerr', 'yposerr',
+                                'zposerr', 'xvel', 'yvel', 'zvel', 'zacc', 'xacc_s', 'yacc_s', 'zacc_s'],
+                         encoding='gb2312')
+    
+    fs = 1.0
+    freq_igrf_x, psd_igrf_x = welch(
+        dd_gps.xpos.compute().to_numpy(), 1., 'hanning', dd_gps.__len__(), scaling='density')
+    freq_igrf_y, psd_igrf_y = welch(
+        dd_gps.ypos.compute().to_numpy(), 1., 'hanning', dd_gps.__len__(), scaling='density')
+    freq_igrf_z, psd_igrf_z = welch(
+        dd_gps.zpos.compute().to_numpy(), 1., 'hanning', dd_gps.__len__(), scaling='density')
+    
+    plt.style.use(['science', 'no-latex', 'high-vis'])
+    fig, ax = plt.subplots(figsize=(15, 8))
+    plt.loglog(freq_igrf_x, np.sqrt(psd_igrf_x),
+               linewidth=2, label='gcrs2srf_x')
+    plt.loglog(freq_igrf_y, np.sqrt(psd_igrf_y),
+               linewidth=2, label='gcrs2srf_y')
+    plt.loglog(freq_igrf_z, np.sqrt(psd_igrf_z),
+               linewidth=2, label='gcrs2srf_z')
+    plt.tick_params(labelsize=25, width=2.9)
+    ax.yaxis.get_offset_text().set_fontsize(24)
+    ax.xaxis.get_offset_text().set_fontsize(24)
+    plt.xlabel('Frequency [Hz]', fontsize=20)
+    plt.ylabel(r'$PSD \quad [deg/\sqrt{hz}]$', fontsize=20)
+    plt.legend(fontsize=20, loc='best')
+    plt.grid(True, which='both', ls='dashed', color='0.5', linewidth=0.6)
+    plt.gca().spines['left'].set_linewidth(2)
+    plt.gca().spines['top'].set_linewidth(2)
+    plt.gca().spines['right'].set_linewidth(2)
+    plt.gca().spines['bottom'].set_linewidth(2)
+
+    plt.show()
+
+
+def beidou():
+    dd_beidou = dd.read_csv(urlpath='..//output//taiji-01-0860-earth-fixed-system-2019-09.txt', header=None,
+                            engine='c', skiprows=91, storage_options=dict(auto_mkdir=False), sep='\s+',
+                            names=['utc_time', 'self_rcv_time', 'xpos',
+                                   'ypos', 'zpos', 'xvel', 'yvel', 'zvel'],
+                            encoding='gb2312')
+
+    plt.style.use(['science', 'no-latex', 'high-vis'])
+    fig, ax = plt.subplots(figsize=(15, 8))
+    plt.plot(dd_beidou.xvel.compute().to_numpy(), linewidth=1, label='xvel_wgs84_beidou')
+    plt.plot(dd_beidou.yvel.compute().to_numpy(), linewidth=1, label='yvel_wgs84_beidou')
+    plt.plot(dd_beidou.zvel.compute().to_numpy(), linewidth=1, label='zvel_wgs84_beidou')
+    plt.tick_params(labelsize=25, width=2.9)
+    ax.yaxis.get_offset_text().set_fontsize(24)
+    ax.xaxis.get_offset_text().set_fontsize(24)
+    plt.xlabel('Sample point', fontsize=20)
+    plt.ylabel('$Position [km]$', fontsize=20)
+    # plt.legend(fontsize=20, loc='best')
+    plt.legend(fontsize=20, loc='lower left', bbox_to_anchor=(
+        0, 1, 1, .1), ncol=3, mode='expand')
+    plt.grid(True, which='both', ls='dashed', color='0.5', linewidth=0.6)
+    plt.gca().spines['left'].set_linewidth(2)
+    plt.gca().spines['top'].set_linewidth(2)
+    plt.gca().spines['right'].set_linewidth(2)
+    plt.gca().spines['bottom'].set_linewidth(2)
+    plt.savefig('..//images//beidou_wgs84_pos_vel_2019_09_16.png')
     plt.show()
 
 
@@ -161,3 +229,5 @@ if __name__ == '__main__':
     # atmos()
     # gcrs()
     air_density()
+    # gracefo_gps()
+    # beidou()

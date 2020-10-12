@@ -51,6 +51,8 @@
 		<File RelativePath="..\mod\bspline_module.f90"/>
 		<File RelativePath="..\mod\bspline_oo_module.f90"/>
 		<File RelativePath="..\mod\bspline_sub_module.f90"/>
+		<File RelativePath=".\fortran\jpl.for"/>
+		<File RelativePath=".\fortran\module_jpl.f90"/>
 		<File RelativePath="..\mod\num_kinds.f90"/>
 		<File RelativePath=".\fortran\src.f90"/></Filter>
 		<File RelativePath=".\ReadMe.txt"/></Files>

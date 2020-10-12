@@ -31,6 +31,16 @@ module taiji_01_preprocessing
         real(kind = 8)                      :: surface_vector_s(6, 3)   !! the surface normal vectors of the satellite in the srf
         real(kind = 8)                      :: surface_vector_i(6, 3)   !! the surface normal vectors of the satellite in the gcrs
         real(kind = 8)                      :: mass                     !! the mass of the whole satellite
+        real(kind = 8)                      :: right_ascension          !! the right ascension of the Sun on the point
+        real(kind = 8)                      :: negative_declination     !! the negative decliantion of the Sun on the point
+        real(kind = 8)                      :: pos_n(3)                 !! the new position vector in the new-formed frame
+        real(kind = 8)                      :: sp_c(3)                  !! the absoption, diffused and spectral coefficients
+        real(kind = 8)                      :: uvector_s2sun_i(3)         !! the unit vector pointing from the satellite to the Sun
+        real(kind = 8)                      :: phi_sur2sun(6)           !! the angle between surface normal and the direction to the Sun
+        real(kind = 8)                      :: jdtt                     !! the julian day form of the utc for this point
+        real(kind = 8)                      :: posvel_sun_i(6)          !! the position and velocity vector of the Sun in the centre of the Earth in the inertial frame
+        real(kind = 8)                      :: solar_pressure_i(3)      !! the solar pressure accelaration in the inertial frame on this point
+        real(kind = 8)                      :: solar_pressure_s(3)      !! the solar pressure accelaration in the srf
         real(kind = 8)                      :: vector1(3), vector2(3)
         real(kind = 8)                      :: angle
         integer(kind = 4)                   :: pos_e_qualflg            !! the quality flag for pos_eition
@@ -38,16 +48,20 @@ module taiji_01_preprocessing
         integer(kind = 4)                   :: vac_qualflg              !! the flag that signals the vacuum before the epoch
         integer(kind = 4)                   :: month                    !! the month for the epoch of the spacecraft
         integer(kind = 4)                   :: dayofyear                !! the day of this year
-        INTEGER(kind = 4)                   :: secofday                 !! the seconds of this day
+        integer(kind = 4)                   :: secofday                 !! the seconds of this day
         integer(kind = 4)                   :: lat                      !! the latitude in the geodetic frame
         integer(kind = 4)                   :: lon                      !! the longitude in the geodetic frame
         integer(kind = 4)                   :: alt                      !! the altitude in the geodetic frame
         integer(kind = 4)                   :: year                     !! the year of this epoch
-    
+        integer(kind = 4)                   :: flag_solar_pressure      !! 1 for not in the shadow of the Earth, 0 for in the shadow of the Earth
     contains
         procedure                           :: eul2m                      => eul2m
         procedure                           :: angle2vectors              => angle2vectors
         procedure                           :: air_drag                   => air_drag
+        procedure                           :: utct2jdtt                  => utct2jdtt
+        procedure                           :: solar_pressure             => solar_pressure
+        procedure                           :: date2radecl                => date2RADECL
+        procedure                           :: check_shadow               => check_shadow
 
     end type spacecraft
 
@@ -61,18 +75,23 @@ module taiji_01_preprocessing
         procedure                           :: write_air_drag_file        => write_air_drag_file
     end type io_file
 
-    type(spacecraft)    , allocatable       :: s(:)
-    type(io_file)       , allocatable       :: i_f(:) !! the input file
-    type(io_file)       , allocatable       :: o_f(:) !! the output file
-    type(io_file)       , ALLOCATABLE       :: f_f(:) !! the position and velocity flag file
-    type(io_file)       , ALLOCATABLE       :: c_f(:) !! clk file
-    type(io_file)       , ALLOCATABLE       :: d_f(:) !! the air density file
-    type(io_file)       , ALLOCATABLE       :: z_f(:) !! the attitude file
-    type(io_file)       , ALLOCATABLE       :: v_f(:) !! the relative velocity file included in the positions and velocities file in gcrs
-    type(io_file)       , ALLOCATABLE       :: a_f(:) !! the air drag accelaration file in the gcrs
+    class(spacecraft)    , allocatable      :: s(:)
+    class(io_file)       , allocatable      :: i_f(:) !! the input file
+    class(io_file)       , allocatable      :: o_f(:) !! the output file
+    class(io_file)       , ALLOCATABLE      :: f_f(:) !! the position and velocity flag file
+    class(io_file)       , ALLOCATABLE      :: c_f(:) !! clk file
+    class(io_file)       , ALLOCATABLE      :: d_f(:) !! the air density file
+    class(io_file)       , ALLOCATABLE      :: z_f(:) !! the attitude file
+    class(io_file)       , ALLOCATABLE      :: v_f(:) !! the relative velocity file included in the positions and velocities file in gcrs
+    class(io_file)       , ALLOCATABLE      :: a_f(:) !! the air drag accelaration file in the gcrs
+    class(io_file)       , ALLOCATABLE      :: s_f(:) !! the file containing the vector pointing from the Earth to the Sun in the gcrs
     type(io_file)                           :: log_f  !! the log file
 
     real(wp), PARAMETER                     :: pi = acos(-1.0_wp)
+    real(wp), PARAMETER                     :: radius_earth = 6371.0_wp     !! the radius of the earth in km
+    real(wp), PARAMETER                     :: fe = 1370.0_wp               !! the solar flux, unit=w/m^2
+    real(wp), PARAMETER                     :: c = 299792458.0_wp        !! the speed of light
+    real(wp), PARAMETER                     :: au_unit = 149597871.0_wp     !! Astronomical unit
     
 contains
     
@@ -363,8 +382,7 @@ contains
         r(3, 3, 3) =  1.0_wp
 
         ! creat the rotation matrix following the sequence
-        me%m = matmul(r(seq(3), :, :), r(seq(1), :, :))
-        me%m = matmul(r(seq(2), :, :), me%m)
+        me%m = matmul(r(seq(3), :, :), matmul(r(seq(2), :, :), r(seq(1), :, :)))
 
     end subroutine eul2m
 
@@ -373,7 +391,7 @@ contains
 
         class(spacecraft), INTENT(INOUT)            :: me
 
-        me%angle = acos(dot_product(me%vector1, me%vector2) / norm2(me%vector1) * norm2(me%vector2))
+        me%angle = acos(dot_product(me%vector1, me%vector2) / (norm2(me%vector1) * norm2(me%vector2)))
     end subroutine angle2vectors
 
     subroutine air_drag(me, flag, j)
@@ -389,11 +407,23 @@ contains
         if (flag == 'i') then 
             if (me%theta_v2n(j) < (pi / 2.0)) then
                     k = ceiling(j / 2.0_wp)
-                    me%air_drag_i(k) = 1.0_wp / 2.0_wp * me%ambient_density * &
-                                        cos(me%theta_v2n(j)) * me%area(j) * &
-                                        (-2.2_wp) * me%rvel_i(k) * &
-                                        norm2(me%rvel_i) / me%mass
-                end if
+                    me%air_drag_i = 1.0_wp / 2.0_wp * me%ambient_density * & !! ambient air density
+                                    me%area(j) * & !! area of the surface
+                                    norm2(me%rvel_i)**2 * & !! magnitude of the velocty relative to the atmosphere
+                                    (-2.2_wp) * cos(me%theta_v2n(j)) * me%rvel_i / norm2(me%rvel_i) / & !! ballistic coefficient vector
+                                    me%mass & !! the mass of the satellite
+                                    + me%air_drag_i
+            end if
+        else if (flag == 's') then
+            if (me%theta_v2n(j) < (pi / 2.0)) then
+                    k = ceiling(j / 2.0_wp)
+                    me%air_drag_s = 1.0_wp / 2.0_wp * me%ambient_density * & !! ambient air density
+                                    me%area(j) * & !! area of the surface
+                                    norm2(me%rvel_s)**2 * & !! magnitude of the velocty relative to the atmosphere
+                                    (-2.2_wp) * cos(me%theta_v2n(j)) * me%rvel_s / norm2(me%rvel_s) / & !! ballistic coefficient vector
+                                    me%mass & !! the mass of the satellite
+                                    + me%air_drag_s
+            end if
         end if
     end subroutine air_drag
 
@@ -442,15 +472,138 @@ contains
         write(me%unit, '(12x, a)') 'comment: 4th column'
         write(me%unit, '(12x, a)') 'long_name: the air drag accelaration along the z axis of the gcrs'
         write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(8x, a)') '- solar_pressure_acc_x: '
+        write(me%unit, '(12x, a)') 'comment: 5th column'
+        write(me%unit, '(12x, a)') 'long_name: the solar pressure accelaration along the x axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(8x, a)') '- solar_pressure_acc_y: '
+        write(me%unit, '(12x, a)') 'comment: 6th column'
+        write(me%unit, '(12x, a)') 'long_name: the solar pressure accelaration along the y axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
+        write(me%unit, '(8x, a)') '- solar_pressure_acc_z: '
+        write(me%unit, '(12x, a)') 'comment: 7th column'
+        write(me%unit, '(12x, a)') 'long_name: the solar pressure accelaration along the z axis of the gcrs'
+        write(me%unit, '(12x, a)') 'unit: km/s^2'
         write(me%unit, '(a)') '# End of header'
 
     end subroutine write_air_drag_file
+
+    subroutine utct2jdtt(me)
+        class(spacecraft), INTENT(INOUT)                    :: me
+
+        me%jdtt = (me%time + 32.184_wp + 37.0_wp) / 86400.0_wp + 2458118.833333333_wp
+
+    end subroutine utct2jdtt
+
+    subroutine solar_pressure(me, flag, j)
+        class(spacecraft) , INTENT(INout)                   :: me
+
+        CHARACTER(len = 1), INTENT(IN   )                   :: flag
+
+        integer(kind = 8) , INTENT(IN   )                   :: j
+
+        integer(kind = 4)                                   :: k
+
+        if (me%flag_solar_pressure == 1_ip) then
+            if (flag == 'i') then 
+                if (me%phi_sur2sun(j) < (pi / 2.0)) then
+                        k = ceiling(j / 2.0_wp)
+                        me%solar_pressure_i = me%solar_pressure_i + &       !! the accumulation term
+                                            (-1) * cos(me%phi_sur2sun(j)) * &!! the cosine of the angle between the surface normal and the direction to the Sun
+                                            me%area(j) *        &         !! the area of the surface
+                                            fe / c *              &         !! the constant in the equation, solar flux and speed of light
+                                            ((1.0_wp - me%sp_c(1)) * me%uvector_s2sun_i + &
+                                            2.0_wp * me%surface_vector_i(j, :) * &
+                                            (me%sp_c(1) * cos(me%phi_sur2sun(j)) + 1.0_wp / 3.0_wp * me%sp_c(2))) / &
+                                            me%mass
+                end if
+            end if
+        else
+            me%solar_pressure_i = 0.0_wp
+        end if
+
+    end subroutine solar_pressure
+
+    subroutine date2RADECL(me)
+        implicit none
+        class(spacecraft), INTENT(INOUT)                    :: me
+
+        real(kind = 8) jdstart, t
+        real(kind = 8) L0, M, Ci, THETA, OMIGA, lamda, year, THETA2000, eph, s1, s2, s3, s4
+
+        jdstart = 2451545.0_wp
+        t = (me%jdtt - jdstart) / 36525.0_wp
+        
+        L0=280.46645_wp + 36000.76983_wp * t + 0.0003032_wp * t**2
+        
+        M = 357.52910_wp + 35999.05030_wp * t - 0.0001559_wp *t**2 - 0.00000048_wp * t**3
+        
+        Ci = (1.914600_wp - 0.004817_wp * t - 0.000014_wp * t**2) * sind(M) + &
+                (0.019993_wp - 0.000101_wp * t) * sind(2.0_wp * M) + 0.000290_wp * sind(3.0_wp * M)
+        
+        THETA = L0 + Ci
+        
+        OMIGA = 125.04_wp - 1934.136_wp * t
+        lamda = THETA - 0.00569_wp - 0.00478_wp * sind(OMIGA)
+        
+        year = floor((me%jdtt - jdstart) / 365.25_wp) + 2000.0_wp
+        THETA2000 = lamda - 0.01397_wp * (year - 2000.0_wp)
+        
+        eph = 23.439291_wp - 0.013004_wp * t - 0.00059_wp * t / 3600.0_wp + 0.001813_wp*t**3 / 3600.0_wp + 0.00256_wp * cosd(OMIGA)
+        
+        s1 = cosd(eph) * sind(THETA2000)
+        s2 = cosd(THETA2000)
+        s3 = sind(eph)
+        s4 = sind(THETA2000)
+        
+        me%right_ascension = atan2d(cosd(eph) * sind(THETA2000), cosd(THETA2000))
+        
+        me%negative_declination = asind(sind(eph) * sind(THETA2000))  
+    end subroutine date2RADECL
+
+    subroutine check_shadow(me)
+        class(spacecraft), INTENT(INOUT)                        :: me
+        real(wp)                                                :: r(3, 3, 3)
+
+        ! the second rotation matrix
+        r(2, 1, 1) =  cosd(-1.0_wp * me%negative_declination)
+        r(2, 1, 2) =  0.0_wp
+        r(2, 1, 3) = -sind(-1.0_wp * me%negative_declination)
+        r(2, 2, 1) =  0.0_wp
+        r(2, 2, 2) =  1.0_wp
+        r(2, 2, 3) =  0.0_wp
+        r(2, 3, 1) =  sind(-1.0_wp * me%negative_declination)
+        r(2, 3, 2) =  0.0_wp
+        r(2, 3, 3) =  cosd(-1.0_wp * me%negative_declination)
+
+        ! the third rotation matrix
+        r(3, 1, 1) =  cosd(me%right_ascension)
+        r(3, 1, 2) =  sind(me%right_ascension)
+        r(3, 1, 3) =  0.0_wp
+        r(3, 2, 1) = -sind(me%right_ascension)
+        r(3, 2, 2) =  cosd(me%right_ascension)
+        r(3, 2, 3) =  0.0_wp
+        r(3, 3, 1) =  0.0_wp
+        r(3, 3, 2) =  0.0_wp
+        r(3, 3, 3) =  1.0_wp
+
+        me%pos_n = matmul(r(2, :, :), matmul(r(3, :, :), me%pos_i))
+        
+        me%flag_solar_pressure = 1_ip
+        if (me%pos_n(1) < 0.0_wp) then
+            if (me%pos_n(2)**2 + me%pos_n(3)**2 <= radius_earth**2) then
+                me%flag_solar_pressure = 0_ip
+                print *, 1
+            end if
+        end if
+    end subroutine check_shadow
     
 end module taiji_01_preprocessing
 
 program main
     use taiji_01_preprocessing
     use num_kinds
+    use Vars_wlm
 
     implicit none
 
@@ -464,6 +617,9 @@ program main
     real(kind = 8)                          :: temp
     real(kind = 8)                          :: temp_i2s_eul(3), temp_t2s_eul(3)
     real(kind = 8)                          :: start_epoch, stop_epoch
+
+    INTEGER(kind = 4)                       :: air_drag_or_not
+    INTEGER(kind = 4)                       :: solar_pressure_or_not
 
     call CPU_TIME(start_epoch)
 
@@ -508,19 +664,22 @@ program main
 
     ALLOCATE(a_f(num_input_files), stat=err) !! the output air drag exerting on the satellite in the gcrs
     if (err /= 0) print *, "a_f: Allocation request denied"
+
+    ALLOCATE(s_f(num_input_files), stat=err) !! the file containing the vector pointing the Sun from the Earth in the gcrs
+    if (err /= 0) print *, "s_f: Allocation request denied"
     !----------------------------------------------------------------------------------------------！
 
     !----------------------------------------------------------------------------------------------!
     i_f%name = [ &
-        '..//output//taiji-01-0860-earth-fixed-system-2019-09.txt' &
+        '..//output//09//taiji-01-0860-earth-fixed-system-2019-09.txt' &
     ]
 
     f_f%name = [ &
-        '..//output//taiji-01-0860-position-velocity-flag-2019-09.txt' &
+        '..//output//09//taiji-01-0860-position-velocity-flag-2019-09.txt' &
     ]
     
     o_f%name = [ &
-        '..//output//taiji-01-0860-earth-fixed-system-2019-09-after-fortran.txt'&
+        '..//output//09//taiji-01-0860-earth-fixed-system-2019-09-after-fortran.txt'&
     ]
 
     c_f%name = [ &
@@ -528,19 +687,23 @@ program main
     ]
 
     d_f%name = [ &
-        '..//output/taiji-01-0860-wind-speed-air-density-2019-09.txt'&
+        '..//output//09//taiji-01-0860-air-density-2019-09.txt'&
     ]
 
     z_f%name = [ &
-        '..//output//taiji-01-0811-attitude-2019-09.txt' &
+        '..//output//09//taiji-01-0811-attitude-2019-09.txt' &
     ]
 
     v_f%name = [ &
-        '..//output//taiji-01-0866-gcrs-2019-09.txt' &
+        '..//output//09//taiji-01-0866-gcrs-2019-09.txt' &
     ]
 
     a_f%name = [ &
-        '..//output//taiji-01-0222-air-drag-gcrs.txt' &
+        '..//output//09//taiji-01-0222-non-gravitational-gcrs-2019-09.txt' &
+    ]
+
+    s_f%name = [ &
+        '..//output//09//taiji-01-0333-earth2sun-2019-09.txt' &
     ]
     !----------------------------------------------------------------------------------------------!
 
@@ -553,6 +716,7 @@ program main
         z_f(index)%unit = 98
         v_f(index)%unit = 68
         a_f(index)%unit = 49
+        s_f(index)%unit = 123
 
         i_f(index)%nheader = 91
         f_f(index)%nheader = 1
@@ -598,6 +762,9 @@ program main
         if (ios /= 0) stop "Error opening file unit v_f(index)%unit"
 
         open(unit=a_f(index)%unit, file=a_f(index)%name, iostat=ios, status='unknown', action='write')
+        if (ios /= 0) stop "Error opening file unit a_f(index)%unit"
+
+        open(unit=s_f(index)%unit, file=s_f(index)%name, iostat=ios, status='unknown', action='write')
         if (ios /= 0) stop "Error opening file unit a_f(index)%unit"
         !------------------------------------------------------------------------------------------!
 
@@ -657,10 +824,11 @@ program main
             read(f_f(index)%unit, *) s(i)%pos_e_qualflg, s(i)%vel_e_qualflg, s(i)%pos_e_incr, s(i)%vel_e_incr
         end do read_data_increment
 
-        read_data_attitude: do i = 1, z_f(index)%nrow - z_f(index)%nheader, 4
+        k = 1
+        read_data_attitude: do i = 1, z_f(index)%nrow - z_f(index)%nheader, 1
             read(z_f(index)%unit, *) temp, temp_i2s_eul, temp_t2s_eul
             if (any(s%time == temp)) then
-                s(i)%i2s_eul = temp_i2s_eul; s(i)%t2s_eul = temp_t2s_eul
+                s(k)%i2s_eul = temp_i2s_eul; s(k)%t2s_eul = temp_t2s_eul; k = k + 1
             end if
         end do read_data_attitude
 
@@ -687,40 +855,87 @@ program main
         call detect_missing(s%time, s%vac_qualflg)
 
         call output_data2file(s, o_f(index)%unit)
-
         call creat_clk_file(s, c_f(index)%unit)
 
         call a_f(index)%write_air_drag_file()
+
+        print *, '----------------------------------------------------------------------------'
+        print *, 'Air drag computation(1 for yes, 0 for no):'
+        print *, '----------------------------------------------------------------------------'
+        read(*, *) air_drag_or_not
+
+        print *, '----------------------------------------------------------------------------'
+        print *, 'Solar pressure computation(1 for yes, 0 for no):'
+        print *, '----------------------------------------------------------------------------'
+        read(*, *) solar_pressure_or_not
         
-        air_drag_loop: do i = 1, i_f(index)%nrow - i_f(index)%nheader, 1
+        if (air_drag_or_not == 1 .and. solar_pressure_or_not == 1) then
+            air_drag_loop: do i = 1, i_f(index)%nrow - i_f(index)%nheader, 1
+                !! mass of the spacecraft
+                s(i)%mass = 183.0_wp  !! kg
 
-            s(i)%mass = 183.0_wp  !! kg
+                !! euler angle to direction cosine matrix
+                s(i)%eul = s(i)%i2s_eul
+                call s(i)%eul2m('d', [3_ip, 1_ip, 2_ip])
+                s(i)%i2s_m = s(i)%m
+                s(i)%s2i_m = transpose(s(i)%i2s_m)
 
-            call s(i)%eul2m('d', [3_ip, 1_ip, 2_ip])
-            s(i)%i2s_m = s(i)%m
-            s(i)%s2i_m = transpose(s(i)%i2s_m)
+                !! surface properties
+                s(i)%area = [0.4356_wp, 0.4356_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp] ! m^2
+                s(i)%surface_vector_s(1, :) = [ 1.0_wp,  0.0_wp,  0.0_wp]
+                s(i)%surface_vector_s(2, :) = [-1.0_wp,  0.0_wp,  0.0_wp]
+                s(i)%surface_vector_s(3, :) = [ 0.0_wp,  1.0_wp,  0.0_wp]
+                s(i)%surface_vector_s(4, :) = [ 0.0_wp, -1.0_wp,  0.0_wp]
+                s(i)%surface_vector_s(5, :) = [ 0.0_wp,  0.0_wp,  1.0_wp]
+                s(i)%surface_vector_s(6, :) = [ 0.0_wp,  0.0_wp, -1.0_wp]
 
-            s(i)%area = [0.4356_wp, 0.4356_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp, 0.8448_wp] ! m^2
-            s(i)%surface_vector_s(1, :) = [ 1.0_wp,  0.0_wp,  0.0_wp]
-            s(i)%surface_vector_s(2, :) = [-1.0_wp,  0.0_wp,  0.0_wp]
-            s(i)%surface_vector_s(3, :) = [ 0.0_wp,  1.0_wp,  0.0_wp]
-            s(i)%surface_vector_s(4, :) = [ 0.0_wp, -1.0_wp,  0.0_wp]
-            s(i)%surface_vector_s(5, :) = [ 0.0_wp,  0.0_wp,  1.0_wp]
-            s(i)%surface_vector_s(6, :) = [ 0.0_wp,  0.0_wp, -1.0_wp]
+                !! utct2julian day
+                call s(i)%utct2jdtt()
+                !! the right ascension and the negative declination for this moment
+                call s(i)%date2radecl()
+                !! the position vector of the Sun, 11 for the Sun, 3 for the Earth
+                !! notice: the unit of the output is a.u.
+                call pleph(s(i)%jdtt, 11_ip, 3_ip, s(i)%posvel_sun_i)
+                write(s_f(index)%unit, '(4f20.10)') s(i)%jdtt, s(i)%posvel_sun_i(1: 3)
+                s(i)%posvel_sun_i = s(I)%posvel_sun_i * au_unit
+                !! the solar pressure spectral diffused absorption coefficients
+                s(i)%sp_c = [1.0_wp / 3.0_wp, 1.0_wp / 3.0_wp, 1.0_wp / 3.0_wp]
+                !! the unit vector from satellite to the Sun
+                s(i)%uvector_s2sun_i = (s(i)%pos_i - s(i)%posvel_sun_i(1: 3)) / norm2(s(i)%pos_i - s(i)%posvel_sun_i(1: 3))
+                !! check whether the satellite is in the shadow of the Earth or not
+                call s(i)%check_shadow()
 
-            loop_surface_vector_trans: do j = 1, 6, 1
-                !! transform the surface normal vector from srf to gcrs
-                s(i)%surface_vector_i(j, :) = matmul(s(i)%s2i_m, s(i)%surface_vector_s(j, :))
-                !! the angle between the surface normal vector and the relative velocity in radian
-                s(i)%vector1 = s(i)%rvel_i; s(i)%vector2 = s(i)%surface_vector_i(j, :)
-                call s(i)%angle2vectors()
-                s(i)%theta_v2n = s(i)%angle
-                !! air drag in the inertial frame
-                call s(i)%air_drag('i', j)
-            end do loop_surface_vector_trans
-            !! output the air drag accelaration in the gcrs to a_f
-            write(a_f(index)%unit, '(f10.1, 4x, 3es25.13, 4x)') s(i)%time, s(i)%air_drag_i
-        end do air_drag_loop
+                s(i)%air_drag_i = 0.0_wp
+                s(i)%solar_pressure_i = 0.0_wp
+                loop_surface_vector_trans: do j = 1, 6, 1
+                    !! air drag---------------------------------------------------------------------
+                    !! transform the surface normal vector from srf to gcrs
+                    s(i)%surface_vector_i(j, :) = matmul(s(i)%s2i_m, s(i)%surface_vector_s(j, :))
+                    !! the angle between the surface normal vector and the relative velocity in radian
+                    s(i)%vector1 = s(i)%rvel_i; s(i)%vector2 = s(i)%surface_vector_i(j, :)
+                    call s(i)%angle2vectors()
+                    s(i)%theta_v2n(j) = s(i)%angle
+                    !! air drag in the inertial frame
+                    call s(i)%air_drag('i', j)
+                    !!------------------------------------------------------------------------------
+
+                    !! solar pressure---------------------------------------------------------------
+                    !! the angle between the surface normal and the direction to the Sun
+                    s(i)%vector1 = s(i)%uvector_s2sun_i; s(i)%vector2 = s(i)%surface_vector_i(j, :)
+                    call s(i)%angle2vectors()
+                    s(i)%phi_sur2sun(j) = s(i)%angle
+                    !! solar pressure in the inertial frame
+                    call s(i)%solar_pressure('i', j)
+                end do loop_surface_vector_trans
+
+                !! air_drag  and solar pressure from gcrs into srf
+                s(i)%air_drag_s = matmul(s(i)%i2s_m, s(i)%air_drag_i)
+                s(i)%solar_pressure_s = matmul(s(i)%i2s_m, s(i)%solar_pressure_i)
+                !! output the air drag and solar preesure accelaration in the gcrs to a_f
+                write(a_f(index)%unit, '(f10.1, 4x, 6es23.15)') s(i)%time, s(i)%air_drag_i, s(i)%solar_pressure_i
+            end do air_drag_loop
+        end if 
+
         !------------------------------------------------------------------------------------------!
 
         !------------------------------------------------------------------------------------------!
@@ -747,6 +962,9 @@ program main
 
         close(unit=a_f(index)%unit, iostat=ios)
         if (ios /= 0) stop "Error closing file unit a_f(index)%unit"
+
+        close(unit=s_f(index)%unit, iostat=ios)
+        if (ios /= 0) stop "Error closing file unit s_f(index)%unit"
 
         if (allocated(s)) deallocate(s, stat=err3)
         if (err3 /= 0) print *, "s: Deallocation request denied"
