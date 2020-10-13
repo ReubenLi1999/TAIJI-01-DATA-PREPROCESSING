@@ -397,18 +397,20 @@ def itrs2gcrs(years, months, dates, hours, minutes, seconds, pos, vel, utc_time,
             str(int(element[3])) + ':' + str(int(element[4])) + ':' + str(element[5]))
 
     a_date = atime(date_list)
-    pos = pos * u.km; vel = vel * u.km / u.s
-    itrs = coor.ITRS(x=pos[:, 0], y=pos[:, 1], z=pos[:, 2], v_x=vel[:, 0], v_y=vel[:, 1], v_z=vel[:,
-    2], representation_type='cartesian', differential_type='cartesian', obstime=a_date)
-    gcrs = itrs.transform_to(coor.GCRS(obstime=a_date))
+    pos = pos * u.km; vel = vel * u.km
+    itrs1 = coor.ITRS(x=pos[:, 0], y=pos[:, 1], z=pos[:, 2], representation_type='cartesian', obstime=a_date)
+    gcrs1 = itrs1.transform_to(coor.GCRS(obstime=a_date))
+    itrs2 = coor.ITRS(x=vel[:, 0], y=vel[:, 1], z=vel[:, 2], representation_type='cartesian', obstime=a_date)
+    gcrs2 = itrs2.transform_to(coor.GCRS(obstime=a_date))
 
-    gcrs_xyz = np.asarray(gcrs.cartesian.xyz)
+    gcrs_xyz1 = np.asarray(gcrs1.cartesian.xyz)
+    gcrs_xyz2 = np.asarray(gcrs2.cartesian.xyz)
 
-    dd_igrf = dd.from_pandas(pd.DataFrame({'utc_time': utc_time, 'gcrs_x': gcrs_xyz[0],
-                                           'gcrs_y': gcrs_xyz[1], 'gcrs_z': gcrs_xyz[2],
-                                           'gcrs_rvx': np.asarray(gcrs.cartesian.differentials['s'].d_x),
-                                           'gcrs_rvy': np.asarray(gcrs.cartesian.differentials['s'].d_y),
-                                           'gcrs_rvz': np.asarray(gcrs.cartesian.differentials['s'].d_z)}),
+    dd_igrf = dd.from_pandas(pd.DataFrame({'utc_time': utc_time, 'gcrs_x': gcrs_xyz1[0],
+                                           'gcrs_y': gcrs_xyz1[1], 'gcrs_z': gcrs_xyz1[2],
+                                           'gcrs_rvx': gcrs_xyz2[0],
+                                           'gcrs_rvy': gcrs_xyz2[1],
+                                           'gcrs_rvz': gcrs_xyz2[2]}),
                              npartitions=1)
     write_gcrs_file_header(gcrs_filename, dd_igrf)
     dd_igrf.to_csv(gcrs_filename, single_file=True, sep='\t', index=False, mode='a+')

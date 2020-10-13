@@ -904,6 +904,8 @@ program main
                 s(i)%uvector_s2sun_i = (s(i)%pos_i - s(i)%posvel_sun_i(1: 3)) / norm2(s(i)%pos_i - s(i)%posvel_sun_i(1: 3))
                 !! check whether the satellite is in the shadow of the Earth or not
                 call s(i)%check_shadow()
+                
+                print *, matmul(s(i)%i2s_m, s(i)%rvel_i)
 
                 s(i)%air_drag_i = 0.0_wp
                 s(i)%solar_pressure_i = 0.0_wp
@@ -932,7 +934,7 @@ program main
                 s(i)%air_drag_s = matmul(s(i)%i2s_m, s(i)%air_drag_i)
                 s(i)%solar_pressure_s = matmul(s(i)%i2s_m, s(i)%solar_pressure_i)
                 !! output the air drag and solar preesure accelaration in the gcrs to a_f
-                write(a_f(index)%unit, '(f10.1, 4x, 6es23.15)') s(i)%time, s(i)%air_drag_i, s(i)%solar_pressure_i
+                write(a_f(index)%unit, '(f10.1, 4x, 6es23.15)') s(i)%time, s(i)%air_drag_s, s(i)%solar_pressure_s
             end do air_drag_loop
         end if 
 

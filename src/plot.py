@@ -130,21 +130,21 @@ def gcrs():
 
 
 def air_density():
-    dd_aird = dd.read_csv(urlpath='..//output//taiji-01-0222-non-gravitational-gcrs-2019-09.txt', header=None,
+    dd_aird = dd.read_csv(urlpath='..//output//09//taiji-01-0222-non-gravitational-gcrs-2019-09.txt', header=None,
                           engine='c', skiprows=47, storage_options=dict(auto_mkdir=False), sep='\s+',
                           names=['gps_time', 'xacc_a', 'yacc_a', 'zacc_a', 'xacc_s', 'yacc_s', 'zacc_s'],
                           dtype=np.float64, encoding='gb2312')
 
     plt.style.use(['science', 'no-latex', 'high-vis'])
     fig, ax = plt.subplots(figsize=(15, 8))
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.zacc_s.compute().to_numpy(), linewidth=1, label='zacc_gcrs')
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.yacc_s.compute().to_numpy(), linewidth=1, label='yacc_gcrs')
-    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.xacc_s.compute().to_numpy(), linewidth=1, label='xacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.xacc_a.compute().to_numpy(), linewidth=1, label='xacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.yacc_a.compute().to_numpy(), linewidth=1, label='yacc_gcrs')
+    plt.plot(dd_aird.gps_time.compute().to_numpy(), dd_aird.zacc_a.compute().to_numpy(), linewidth=1, label='zacc_gcrs')
     plt.tick_params(labelsize=25, width=2.9)
     ax.yaxis.get_offset_text().set_fontsize(24)
     ax.xaxis.get_offset_text().set_fontsize(24)
     plt.xlabel('GPS time [s]', fontsize=20)
-    plt.ylabel('$Air \quad drag \quad accelaration [km/s^2]$', fontsize=20)
+    plt.ylabel('$Air \quad drag \quad accelaration [m/s^2]$', fontsize=20)
     # plt.legend(fontsize=20, loc='best')
     plt.legend(fontsize=20, loc='lower left', bbox_to_anchor=(
         0, 1, 1, .1), ncol=3, mode='expand')
