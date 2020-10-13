@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30204.135
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{6989167D-11E4-40FE-8C1A-2192A86A7E90}") = "air_drag_fortran", "air_drag_fortran.vfproj", "{53C53A24-F4B4-42D6-8F9B-E7DFFDE43FF9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{53C53A24-F4B4-42D6-8F9B-E7DFFDE43FF9}.Debug|x86.ActiveCfg = Debug|Win32
+		{53C53A24-F4B4-42D6-8F9B-E7DFFDE43FF9}.Debug|x86.Build.0 = Debug|Win32
+		{53C53A24-F4B4-42D6-8F9B-E7DFFDE43FF9}.Release|x86.ActiveCfg = Release|Win32
+		{53C53A24-F4B4-42D6-8F9B-E7DFFDE43FF9}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CC7553EA-EDBB-44CE-B102-B398B48777BD}
+	EndGlobalSection
+EndGlobal
