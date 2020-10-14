@@ -127,8 +127,10 @@ class Att(object):
                 break_points = np.r_[break_points[0], reg.__len__()]
                 temp = 0
                 for i, break_point in enumerate(break_points):
-                    filtered_x = np.r_[filtered_x, filtfilt(taps, 1.0, reg[temp: break_point])]
+                    reg[temp: break_point] -= i * 360.0
                     temp = break_point
+
+                filtered_x = filtfilt(taps, 1.0, reg)
             else:
                 filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
             self.df = self.df.reset_index().set_index('index')
@@ -137,7 +139,7 @@ class Att(object):
             self.df[filtered_list[index]] = self.df[filtered_list[index]].compute() + filtered_x
 
         # plot the frequency response
-        plot_freq_response(taps, fq)
+        # plot_freq_response(taps, fq)
         self.df = self.df.nsmallest(self.df.__len__(), 'utc_time')
 
         return filtered_list

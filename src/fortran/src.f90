@@ -409,7 +409,7 @@ contains
                     k = ceiling(j / 2.0_wp)
                     me%air_drag_i = 1.0_wp / 2.0_wp * me%ambient_density * & !! ambient air density
                                     me%area(j) * & !! area of the surface
-                                    norm2(me%rvel_i)**2 * & !! magnitude of the velocty relative to the atmosphere
+                                    norm2(me%rvel_i * 1000.0_wp)**2 * & !! magnitude of the velocty relative to the atmosphere
                                     (-2.2_wp) * cos(me%theta_v2n(j)) * me%rvel_i / norm2(me%rvel_i) / & !! ballistic coefficient vector
                                     me%mass & !! the mass of the satellite
                                     + me%air_drag_i
@@ -904,8 +904,6 @@ program main
                 s(i)%uvector_s2sun_i = (s(i)%pos_i - s(i)%posvel_sun_i(1: 3)) / norm2(s(i)%pos_i - s(i)%posvel_sun_i(1: 3))
                 !! check whether the satellite is in the shadow of the Earth or not
                 call s(i)%check_shadow()
-                
-                print *, matmul(s(i)%i2s_m, s(i)%rvel_i)
 
                 s(i)%air_drag_i = 0.0_wp
                 s(i)%solar_pressure_i = 0.0_wp

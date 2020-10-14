@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 def att():
     """ This function is designed to plot the images about attitude
     """
-    dd_att = dd.read_csv(urlpath='..//output//taiji-01-0811-attitude-2019-09.txt', sep='\t', header=None,
+    dd_att = dd.read_csv(urlpath='..//output//09//taiji-01-0811-attitude-2019-09.txt', sep='\t', header=None,
                          engine='c', skiprows=44, storage_options=dict(auto_mkdir=False),
                          names=['gps_time', 'gcrs_x', 'gcrs_y', 'gcrs_z', 'tf_x', 'tf_y', 'tf_z'],
                          dtype=np.float64, encoding='gb2312')
