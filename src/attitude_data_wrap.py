@@ -105,7 +105,7 @@ class Att(object):
             fq (float64): niquist frequency
         """
         # the desired width of the transition from pass to stop
-        width = 0.52 / fq
+        width = 1.2 / fq
 
         # the desired attenuation in the stop band in db: ripple_db
 
@@ -120,14 +120,24 @@ class Att(object):
         # use filtfilt to filter x with the fir filter
         filtered_list = []
         for index, flag in enumerate(flags):
-            filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
+            filtered_x = []
+            if flag == 'igrf_eul_y_interp':
+                reg = self.df[flag].compute().to_numpy()
+                break_points = np.asarray(np.where(np.abs(np.diff(reg) > 90.0))) + 1
+                break_points = np.r_[break_points[0], reg.__len__()]
+                temp = 0
+                for i, break_point in enumerate(break_points):
+                    filtered_x = np.r_[filtered_x, filtfilt(taps, 1.0, reg[temp: break_point])]
+                    temp = break_point
+            else:
+                filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
             self.df = self.df.reset_index().set_index('index')
             filtered_list.append(flag + '_filt')
             self.df[filtered_list[index]] = 0
             self.df[filtered_list[index]] = self.df[filtered_list[index]].compute() + filtered_x
 
         # plot the frequency response
-        # plot_freq_response(taps, fq)
+        plot_freq_response(taps, fq)
         self.df = self.df.nsmallest(self.df.__len__(), 'utc_time')
 
         return filtered_list
@@ -285,7 +295,7 @@ class InputFile(object):
                 print('Error occurred in the date of this month!')
 
             # output file name
-            self.output_filename = '..//output//taiji-01-0811-attitude-' + \
+            self.output_filename = '..//output//' + month_str + '//taiji-01-0811-attitude-' + \
                 str(year_this_month) + '-' + month_str + '.txt'
 
             self.df = self.df.nsmallest(self.df.__len__(), 'self_rcv_time')
@@ -477,7 +487,7 @@ def main(year, month):
     taiji_01_att.df = rcvt2gpst(taiji_01_att.df, toff_file.df)
     flags_list = taiji_01_att.equidistant_quantity(['igrf_eul_x', 'igrf_eul_y', 'igrf_eul_z',
                                                     'tf_eul_x', 'tf_eul_y', 'tf_eul_z'], 0.25)
-    filtered_list = taiji_01_att.down_sample(flags_list, cutoff_hz=1., fq=0.5 / 0.25)
+    filtered_list = taiji_01_att.down_sample(flags_list, cutoff_hz=0.5, fq=0.5 / 0.25)
     taiji_01_att.write_output_file_header(attd_file.output_filename)
     taiji_01_att.write_file(filtered_list, attd_file.output_filename)
 
