@@ -620,7 +620,8 @@ program main
 
     INTEGER(kind = 4)                       :: air_drag_or_not
     INTEGER(kind = 4)                       :: solar_pressure_or_not
-
+    integer(kind = 4)                       :: attitude_or_not
+    
     call CPU_TIME(start_epoch)
 
     num_input_files = 1
@@ -671,39 +672,39 @@ program main
 
     !----------------------------------------------------------------------------------------------!
     i_f%name = [ &
-        '..//output//09//taiji-01-0860-earth-fixed-system-2019-09.txt' &
+        '..//output//11//taiji-01-0860-earth-fixed-system-2019-11.txt' &
     ]
 
     f_f%name = [ &
-        '..//output//09//taiji-01-0860-position-velocity-flag-2019-09.txt' &
+        '..//output//11//taiji-01-0860-position-velocity-flag-2019-11.txt' &
     ]
     
     o_f%name = [ &
-        '..//output//09//taiji-01-0860-earth-fixed-system-2019-09-after-fortran.txt'&
+        '..//output//11//taiji-01-0860-earth-fixed-system-2019-11-after-fortran.txt'&
     ]
 
     c_f%name = [ &
-        '..//input//09//KX09_SAT_1D_ENG_0111_20190900T000000_01_04.txt'&
+        '..//input//11//KX11_SAT_1D_ENG_0111_20191100T000000_01_04.txt'&
     ]
 
     d_f%name = [ &
-        '..//output//09//taiji-01-0860-air-density-2019-09.txt'&
+        '..//output//11//taiji-01-0860-air-density-2019-11.txt'&
     ]
 
     z_f%name = [ &
-        '..//output//09//taiji-01-0811-attitude-2019-09.txt' &
+        '..//output//11//taiji-01-0811-attitude-2019-11.txt' &
     ]
 
     v_f%name = [ &
-        '..//output//09//taiji-01-0866-gcrs-2019-09.txt' &
+        '..//output//11//taiji-01-0866-gcrs-2019-11.txt' &
     ]
 
     a_f%name = [ &
-        '..//output//09//taiji-01-0222-non-gravitational-gcrs-2019-09.txt' &
+        '..//output//11//taiji-01-0222-non-gravitational-gcrs-2019-11.txt' &
     ]
 
     s_f%name = [ &
-        '..//output//09//taiji-01-0333-earth2sun-2019-09.txt' &
+        '..//output//11//taiji-01-0333-earth2sun-2019-11.txt' &
     ]
     !----------------------------------------------------------------------------------------------!
 
@@ -754,10 +755,15 @@ program main
 
         open(unit=d_f(index)%unit, file=d_f(index)%name, iostat=ios, status="unknown", action='read')
         if (ios /= 0) stop "Error opening file unit d_f(index)%unit"
-
-        open(unit=z_f(index)%unit, file=z_f(index)%name, iostat=ios, status="unknown", action='read')
-        if (ios /= 0) stop "Error opening file unit z_f(index)%unit"
-
+        
+        print *, 'Attitude file is in the input files or not: (1 for yes; 0 for no)'
+        read(*, *) attitude_or_not
+        
+        if (attitude_or_not == 1) then
+            open(unit=z_f(index)%unit, file=z_f(index)%name, iostat=ios, status="unknown", action='read')
+            if (ios /= 0) stop "Error opening file unit z_f(index)%unit"
+        end if
+            
         open(unit=v_f(index)%unit, file=v_f(index)%name, iostat=ios, status='unknown', action='read')
         if (ios /= 0) stop "Error opening file unit v_f(index)%unit"
 
@@ -778,9 +784,6 @@ program main
 
         if (i_f(index)%nrow - i_f(index)%nheader /= f_f(index)%nrow - f_f(index)%nheader) &
         stop "The nrows of gps file and increment file do not conform"
-
-        if (i_f(index)%nrow - i_f(index)%nheader /= z_f(index)%nrow - z_f(index)%nheader) &
-        stop "The nrows of gps file and attitude file do not conform"
 
         if (i_f(index)%nrow - i_f(index)%nheader /= v_f(index)%nrow - v_f(index)%nheader) &
         stop "The nrows of gps file and gcrs file do not conform"
