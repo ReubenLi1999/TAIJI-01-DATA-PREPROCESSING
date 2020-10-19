@@ -300,6 +300,7 @@ def main(year, month):
                           color="RebeccaPurple"
                       ))
     fig.show()
+    fig.write_html("..//images//Solar_system.html")
 
 
 if __name__ == '__main__':

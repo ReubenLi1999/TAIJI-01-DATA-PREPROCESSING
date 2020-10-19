@@ -799,9 +799,11 @@ program main
             write(o_f(index)%unit, '(a)') trim(i_f(index)%file_header(i))
         end do read_header_i
 
-        read_header_z: do i = 1, z_f(index)%nheader, 1
-            read(z_f(index)%unit, '(a)') z_f(index)%file_header(i)
-        end do read_header_z
+        if (attitude_or_not == 1) then
+            read_header_z: do i = 1, z_f(index)%nheader, 1
+                read(z_f(index)%unit, '(a)') z_f(index)%file_header(i)
+            end do read_header_z
+        end if 
 
         read_header_v: do i = 1, v_f(index)%nheader, 1
             read(v_f(index)%unit, '(a)') v_f(index)%file_header(i)
@@ -827,13 +829,15 @@ program main
             read(f_f(index)%unit, *) s(i)%pos_e_qualflg, s(i)%vel_e_qualflg, s(i)%pos_e_incr, s(i)%vel_e_incr
         end do read_data_increment
 
-        k = 1
-        read_data_attitude: do i = 1, z_f(index)%nrow - z_f(index)%nheader, 1
-            read(z_f(index)%unit, *) temp, temp_i2s_eul, temp_t2s_eul
-            if (any(s%time == temp)) then
-                s(k)%i2s_eul = temp_i2s_eul; s(k)%t2s_eul = temp_t2s_eul; k = k + 1
-            end if
-        end do read_data_attitude
+        if (attitude_or_not == 1) then
+            k = 1
+            read_data_attitude: do i = 1, z_f(index)%nrow - z_f(index)%nheader, 1
+                read(z_f(index)%unit, *) temp, temp_i2s_eul, temp_t2s_eul
+                if (any(s%time == temp)) then
+                    s(k)%i2s_eul = temp_i2s_eul; s(k)%t2s_eul = temp_t2s_eul; k = k + 1
+                end if
+            end do read_data_attitude
+        end if
 
         read_data_density: do i = 1, d_f(index)%nrow - d_f(index)%nheader, 1
             read(d_f(index)%unit, *) s(i)%ambient_density

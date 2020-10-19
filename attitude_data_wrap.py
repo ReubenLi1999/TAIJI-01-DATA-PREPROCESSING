@@ -120,7 +120,19 @@ class Att(object):
         # use filtfilt to filter x with the fir filter
         filtered_list = []
         for index, flag in enumerate(flags):
-            filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
+            filtered_x = []
+            if flag == 'igrf_eul_y_interp':
+                array_i = self.df[flag].compute().to_numpy()
+                break_points = np.array(np.where(np.abs(np.diff(array_i) > 180.0))) + 1
+                break_points = break_points[0]
+                break_points = np.r_[0, break_points, array_i.__len__()]
+                temp = 0
+                for i, break_point in enumerate(break_points):
+                    array_i[temp: break_point] -= 360.0 * i
+                    temp = break_point
+                filtered_x = filtfilt(taps, 1.0, array_i)
+            else:
+                filtered_x = filtfilt(taps, 1.0, self.df[flag].compute().to_numpy())
             self.df = self.df.reset_index().set_index('index')
             filtered_list.append(flag + '_filt')
             self.df[filtered_list[index]] = 0
@@ -285,7 +297,7 @@ class InputFile(object):
                 print('Error occurred in the date of this month!')
 
             # output file name
-            self.output_filename = '..//output//taiji-01-0811-attitude-' + \
+            self.output_filename = '..//output//' + month_str + '//taiji-01-0811-attitude-' + \
                 str(year_this_month) + '-' + month_str + '.txt'
 
             self.df = self.df.nsmallest(self.df.__len__(), 'self_rcv_time')

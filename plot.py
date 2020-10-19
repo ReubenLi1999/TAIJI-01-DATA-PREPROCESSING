@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 def att():
     """ This function is designed to plot the images about attitude
     """
-    dd_att = dd.read_csv(urlpath='..//output//taiji-01-0811-attitude-2019-09.txt', sep='\t', header=None,
+    dd_att = dd.read_csv(urlpath='..//output//09//taiji-01-0811-attitude-2019-09.txt', sep='\t', header=None,
                          engine='c', skiprows=44, storage_options=dict(auto_mkdir=False),
                          names=['gps_time', 'gcrs_x', 'gcrs_y', 'gcrs_z', 'tf_x', 'tf_y', 'tf_z'],
                          dtype=np.float64, encoding='gb2312')
@@ -224,10 +224,33 @@ def beidou():
     plt.show()
 
 
+def air_d():
+    air_d = np.loadtxt('..//output//09//taiji-01-0860-air-density-2019-09.txt', skiprows=1, dtype=np.float64)
+    plt.style.use(['science', 'no-latex', 'high-vis'])
+    fig, ax = plt.subplots(figsize=(15, 8))
+    plt.plot(air_d, linewidth=1)
+    plt.tick_params(labelsize=25, width=2.9)
+    ax.yaxis.get_offset_text().set_fontsize(24)
+    ax.xaxis.get_offset_text().set_fontsize(24)
+    plt.xlabel('Sample point', fontsize=20)
+    plt.ylabel('$Air \quad density [kg/m^3]$', fontsize=20)
+    # plt.legend(fontsize=20, loc='best')
+    plt.legend(fontsize=20, loc='lower left', bbox_to_anchor=(
+        0, 1, 1, .1), ncol=3, mode='expand')
+    plt.grid(True, which='both', ls='dashed', color='0.5', linewidth=0.6)
+    plt.gca().spines['left'].set_linewidth(2)
+    plt.gca().spines['top'].set_linewidth(2)
+    plt.gca().spines['right'].set_linewidth(2)
+    plt.gca().spines['bottom'].set_linewidth(2)
+    plt.show()
+
+
+
 if __name__ == '__main__':
-    # att()
+    att()
     # atmos()
     # gcrs()
-    air_density()
+    # air_density()
     # gracefo_gps()
     # beidou()
+    #air_d()
